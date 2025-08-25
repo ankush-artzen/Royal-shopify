@@ -1,34 +1,29 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
-client_id = "ee6168206fe0f99ba138522cecdaa717"
-application_url = "https://roles-authority-blackberry-expenses.trycloudflare.com"
+client_id = "0efee26ca59dd392e4690f4b84befe14"
+name = "Royal-app"
+handle = "royal-app-2"
+application_url = "https://doors-ctrl-collective-conduct.trycloudflare.com"
 embedded = true
-name = "next-test-app"
-handle = "next-test-app-5"
 
 [build]
 automatically_update_urls_on_dev = true
 dev_store_url = "karan-working.myshopify.com"
 include_config_on_deploy = true
 
-[webhooks]
-api_version = "2025-04"
-
-[access.admin]
-direct_api_mode = "offline"
-embedded_app_direct_api_access = true
-
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_products"
-use_legacy_install_flow = false
+scopes = "read_customers,read_orders,read_products,write_orders,write_products"
 
 [auth]
 redirect_urls = [
-  "https://roles-authority-blackberry-expenses.trycloudflare.com/auth/callback",
-  "https://roles-authority-blackberry-expenses.trycloudflare.com/auth/shopify/callback",
-  "https://roles-authority-blackberry-expenses.trycloudflare.com/api/auth/callback"
+  "https://doors-ctrl-collective-conduct.trycloudflare.com/auth/callback",
+  "https://doors-ctrl-collective-conduct.trycloudflare.com/auth/shopify/callback",
+  "https://doors-ctrl-collective-conduct.trycloudflare.com/api/auth/callback"
 ]
+
+[webhooks]
+api_version = "2025-07"
 
 [pos]
 embedded = false
