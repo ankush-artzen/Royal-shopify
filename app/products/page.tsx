@@ -14,6 +14,7 @@ import {
   Tooltip,
 } from "@shopify/polaris";
 import { useAppBridge } from "@shopify/app-bridge-react";
+import { useRouter } from "next/navigation";
 
 interface Product {
   id: string;
@@ -37,6 +38,7 @@ export default function ProductsPage() {
   const [shop, setShop] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
 
   useEffect(() => {
     const shopFromConfig = app?.config?.shop;
@@ -70,7 +72,7 @@ export default function ProductsPage() {
             picture,
             shop: shop,
             createdAt: p.createdAt || new Date().toISOString(),
-            price: firstVariant?.price || "",
+            price: firstVariant?.price?.toString() || "",
             variantId: firstVariant?.id || "",
             status,
           };
@@ -122,7 +124,7 @@ export default function ProductsPage() {
             selectable={false}
             headings={[
               { title: "Product" },
-              { title: "Slug" },
+              { title: "Title" },
               { title: "Price" },
               { title: "Status" },
               { title: "Actions" },
@@ -146,7 +148,9 @@ export default function ProductsPage() {
                   </Text>
                 </IndexTable.Cell>
 
-                <IndexTable.Cell>${product.price}</IndexTable.Cell>
+                <IndexTable.Cell>
+                  {product.price ? `$${product.price}` : "-"}
+                </IndexTable.Cell>
 
                 <IndexTable.Cell>
                   {renderStatusBadge(product.status)}
@@ -154,27 +158,20 @@ export default function ProductsPage() {
 
                 <IndexTable.Cell>
                   <div className="flex gap-4">
-                    <Tooltip content="View Product">
-                      <Button
-                        size="slim"
-                        onClick={() => {
-                          if (!shop || !product.id) return;
-
-                          const numericId = product.id.includes("gid://")
-                            ? product.id.split("/").pop()
-                            : product.id;
-
-                          const storeHandle = shop.replace(
-                            ".myshopify.com",
-                            "",
-                          );
-
-                          const shopifyAdminUrl = `https://admin.shopify.com/store/${storeHandle}/products/${numericId}`;
-                          window.open(shopifyAdminUrl, "_blank");
-                        }}
-                      >
-                        View
-                      </Button>
+                    <Tooltip content="Add Royalty">
+                      <Tooltip content="Add Royalty">
+                        <Button
+                          size="slim"
+                          variant="primary"
+                          onClick={() => {
+                            router.push(
+                              `/royalty/create`,
+                            );
+                          }}
+                        >
+                          Add Royalty
+                        </Button>
+                      </Tooltip>
                     </Tooltip>
                   </div>
                 </IndexTable.Cell>

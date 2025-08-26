@@ -59,25 +59,70 @@ model StoreSetting {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
-model RoyalProduct {
-  id             String   @id @default(auto()) @map("_id") @db.ObjectId
-  title          String
-  slug           String   @unique
-  image          String?
-  royaltyCharges Float
-  status         String   @default("DRAFT") 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+
+model Designer {
+  id                  String               @id @default(auto()) @map("_id") @db.ObjectId
+  name                String
+  email               String               @unique
+  royalties           ProductRoyalty[]
+  royaltyTransactions RoyaltyTransaction[]
 }
 
-model shopifyProduct {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  shop      String             
-  shopifyId String   @unique
-  title     String
-  handle    String
-  tags      Json     
-  media     Json      
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model Product {
+  id                  String               @id @default(auto()) @map("_id") @db.ObjectId
+  shopifyId           String               @unique
+  title               String
+  handle              String
+  shop                String
+  price               Float
+  imageUrl            String?
+  royalties           ProductRoyalty[]
+  royaltyTransactions RoyaltyTransaction[]
+}
+
+model ProductRoyalty {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  productId  String
+  designerId String
+  Royality   Float
+  product    Product  @relation(fields: [productId], references: [id])
+  designer   Designer @relation(fields: [designerId], references: [id])
+
+  @@unique([productId, designerId])
+}
+
+model RoyaltyTransaction {
+  id               String             @id @default(auto()) @map("_id") @db.ObjectId
+  shop             String
+  orderId          String
+  orderName        String
+  productId        String
+  designerId       String
+  Royality         Float
+  amount           Float
+  quantity         Int?
+  unitPrice        Float?
+  currency         String?
+  createdAt        DateTime          @default(now())
+  lineItemId       String?           // foreign key to RoyaltyLineItem
+
+  product          Product           @relation(fields: [productId], references: [id])
+  designer         Designer          @relation(fields: [designerId], references: [id])
+  lineItem         RoyaltyLineItem?  @relation("LineItemTransactions", fields: [lineItemId], references: [id])
+
+  @@index([productId])
+  @@index([designerId])
+  @@index([shop])
+  @@index([orderId])
+}
+
+model RoyaltyLineItem {
+  id        String               @id @default(auto()) @map("_id") @db.ObjectId
+  orderId   String
+  productId String
+  quantity  Int
+  unitPrice Float
+  currency  String
+
+  royalties RoyaltyTransaction[] @relation("LineItemTransactions")
 }
