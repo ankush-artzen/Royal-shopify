@@ -1,209 +1,220 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import {
   Page,
   Card,
+  Form,
   FormLayout,
   TextField,
   Button,
-  Autocomplete,
+  Thumbnail,
+  InlineStack,
+  BlockStack,
+  Text,
+  Toast,
+  Frame,
+  Divider,
+  InlineGrid,
 } from "@shopify/polaris";
 import { useAppBridge } from "@shopify/app-bridge-react";
-import { useRouter } from "next/navigation"; 
-
-
-interface Product {
-  id: string; // full GID
-  title: string;
-}
+import { useRouter } from "next/navigation";
 
 export default function AssignRoyalty() {
   const app = useAppBridge();
+  const router = useRouter();
+
   const [shop, setShop] = useState<string>("");
-  const [products, setProducts] = useState<Product[]>([]);
   const [selectedDesigner, setSelectedDesigner] = useState<string>("");
-  const [selectedProduct, setSelectedProduct] = useState<string>(""); // numeric ID
-  const [productQuery, setProductQuery] = useState<string>("");
+  const [selectedProduct, setSelectedProduct] = useState<{
+    id: string;
+    title: string;
+    image?: string;
+    price?: string | number;
+  } | null>(null);
   const [royalty, setRoyalty] = useState<string>("");
   const [loading, setLoading] = useState(false);
-  const router = useRouter(); 
 
-  const [message, setMessage] = useState<{
-    type: "success" | "error";
-    text: string;
-  } | null>(null);
+  // ✅ Toast
+  const [toastActive, setToastActive] = useState(false);
+  const [toastContent, setToastContent] = useState("");
+  const [toastError, setToastError] = useState(false);
 
-  // Get shop domain from App Bridge
+  const dismissToast = () => setToastActive(false);
+  const showToast = (msg: string, isError = false) => {
+    setToastContent(msg);
+    setToastError(isError);
+    setToastActive(true);
+  };
+
   useEffect(() => {
     const shopFromConfig = (app as any)?.config?.shop;
-    console.log("App Bridge shop:", shopFromConfig);
     if (shopFromConfig) setShop(shopFromConfig);
-    else setMessage({ type: "error", text: "Unable to retrieve shop info" });
   }, [app]);
 
-  // Fetch products
-  useEffect(() => {
-    if (!shop) return;
-
-    async function fetchProducts() {
-      try {
-        const res = await fetch(`/api/products?shop=${shop}`);
-        const data = await res.json();
-        console.log("Products fetched:", data.products);
-        setProducts(data.products || []);
-      } catch (err) {
-        console.error("Error fetching products:", err);
-        setMessage({ type: "error", text: "Failed to fetch products" });
-      }
-    }
-
-    fetchProducts();
-  }, [shop]);
-
-  // Filter products for Autocomplete
-  const filteredProducts = useMemo(() => {
-    if (!productQuery) return products;
-    return products.filter((p) =>
-      p.title.toLowerCase().includes(productQuery.toLowerCase())
-    );
-  }, [productQuery, products]);
-
-  const productOptions = filteredProducts.map((p) => ({
-    value: p.id,
-    label: p.title,
-  }));
-
   const handleSubmit = async () => {
-    console.log("Submitting royalty:", {
-      designer: selectedDesigner,
-      product: selectedProduct,
-      royalty,
-    });
-
     if (!selectedDesigner || !selectedProduct || !royalty) {
-      setMessage({ type: "error", text: "All fields are required" });
+      showToast("All fields are required", true);
       return;
     }
 
     const numericRoyalty = parseFloat(royalty);
     if (isNaN(numericRoyalty) || numericRoyalty < 0 || numericRoyalty > 100) {
-      setMessage({ type: "error", text: "Royalty must be 0-100" });
+      showToast("Royalty must be between 0 and 100", true);
       return;
     }
 
     setLoading(true);
-    setMessage(null);
-
     try {
-      const res = await fetch(`/api/royality/create?shop=${shop}`, {
+      const payload = {
+        designerId: selectedDesigner,
+        productId: selectedProduct.id,
+        title: selectedProduct.title,
+        image: selectedProduct.image || null,
+        price: selectedProduct.price
+          ? parseFloat(selectedProduct.price as any)
+          : null,
+        Royality: numericRoyalty,
+      };
+
+      const res = await fetch(`/api/royality/product/create?shop=${shop}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          designerId: selectedDesigner,
-          productId: selectedProduct,
-          Royality: numericRoyalty,
-        }),
+        body: JSON.stringify(payload),
       });
-      const data = await res.json();
-      console.log("Royalty API response:", data);
 
-    
+      const data = await res.json();
+
       if (res.ok) {
-        setMessage({ type: "success", text: "Royalty assigned successfully!" });
-        setSelectedProduct("");
-        setProductQuery("");
+        showToast("Royalty assigned successfully!");
+        setSelectedProduct(null);
+        setSelectedDesigner("");
         setRoyalty("");
-        
         router.push("/royalty");
       } else {
-        setMessage({ type: "error", text: data.error || "Failed to assign royalty" });
+        showToast(data.error || "Failed to assign royalty", true);
       }
-    } catch (err) {
-      console.error("Network error:", err);
-      setMessage({ type: "error", text: "Network error" });
+    } catch (err: any) {
+      showToast(err.message || "Network error", true);
     } finally {
       setLoading(false);
     }
   };
 
+  //  Product picker
+  const selectProducts = async () => {
+    const pickerResult = await (app as any).resourcePicker({
+      type: "product",
+      multiple: false,
+    });
+
+    const product = pickerResult?.selection?.[0];
+    if (product) {
+      setSelectedProduct({
+        id: product.id.split("/").pop(),
+        title: product.title,
+        image: product.images?.[0]?.originalSrc || "",
+        price: product.variants?.[0]?.price || 0,
+      });
+    } else {
+      showToast("No product selected", true);
+    }
+  };
+
   return (
-    <Page title="Assign Royalty">
-      <Card >
-        {message && (
-          <div
-            style={{
-              color: message.type === "success" ? "green" : "red",
-              marginBottom: "1rem",
-              fontWeight: 500,
-            }}
-          >
-            {message.text}
-          </div>
-        )}
-        <FormLayout>
-          <TextField
-            label="Designer ID"
-            value={selectedDesigner}
-            onChange={(value) => {
-              console.log("Designer ID entered:", value);
-              setSelectedDesigner(value);
-            }}
-            placeholder="Enter designer ID"
-            autoComplete="off"
-          />
+    <Frame>
+      {toastActive && (
+        <Toast
+          content={toastContent}
+          error={toastError}
+          onDismiss={dismissToast}
+        />
+      )}
 
-          <Autocomplete
-            options={productOptions}
-            selected={selectedProduct ? [selectedProduct] : []}
-            onSelect={(selected: string[]) => {
-              const product = products.find((p) => p.id === selected[0]);
-              if (product) {
-                const numericId = product.id.split("/").pop() || "";
-                console.log("Product selected:", product.title, "Numeric ID:", numericId);
-                setSelectedProduct(numericId);
-                setProductQuery(product.title);
-              }
-            }}
-            textField={
-              <Autocomplete.TextField
-                label="Select Product"
-                value={productQuery}
-                onChange={(value) => {
-                  console.log("Typing product query:", value);
-                  setProductQuery(value);
-                  setSelectedProduct(""); 
-                }}
-                placeholder="Search product by name"
-                autoComplete="off"
-              />
-            }
-          />
+      <Page
+        title="Assign Royalty"
+        backAction={{ content: "Back", onAction: () => router.back() }}
+        primaryAction={{
+          content: "Save",
+          onAction: handleSubmit,
+          loading,
+          disabled: loading,
+        }}
+      >
+        <Form onSubmit={handleSubmit}>
+          <BlockStack gap="600">
+            {/* Product Section */}
+            <Card>
+              <BlockStack gap="400">
+                <Text as="h2" variant="headingMd">
+                  Product
+                </Text>
+                <Text as="p" tone="subdued">
+                  Choose the product you want to assign a royalty to.
+                </Text>
+                <Button onClick={selectProducts} >
+                  {selectedProduct ? "Change Product" : "Choose Product"}
+                </Button>
 
-          <TextField
-            type="number"
-            label="Royalty Percentage"
-            value={royalty}
-            onChange={(value) => {
-              console.log("Royalty entered:", value);
-              setRoyalty(value);
-            }}
-            min={0}
-            max={100}
-            suffix="%"
-            autoComplete="off"
-          />
+                {selectedProduct && (
+                  <Card roundedAbove="sm">
+                    <InlineStack gap="300" blockAlign="center">
+                      <Thumbnail
+                        size="large"
+                        source={selectedProduct.image || ""}
+                        alt={selectedProduct.title}
+                      />
+                      <BlockStack>
+                        <Text as="h3" variant="bodyMd" fontWeight="bold">
+                          {selectedProduct.title}
+                        </Text>
+                        <Text as="p" tone="subdued">
+                          ${selectedProduct.price}
+                        </Text>
+                      </BlockStack>
+                      <Button
+                        onClick={() => setSelectedProduct(null)}
+                      >
+                        Remove
+                      </Button>
+                    </InlineStack>
+                  </Card>
+                )}
+              </BlockStack>
+            </Card>
 
-          <Button
-            variant = "primary"
-            onClick={handleSubmit}
-            disabled={loading}
-            loading={loading}
-          >
-            Assign Royalty
-          </Button>
-        </FormLayout>
-      </Card>
-    </Page>
+            {/* Designer + Royalty Section */}
+            <Card>
+              <BlockStack gap="400">
+                <Text as="h2" variant="headingMd">
+                  Royalty Details
+                </Text>
+                <Divider />
+                <FormLayout>
+                  <TextField
+                    label="Designer ID"
+                    value={selectedDesigner}
+                    onChange={setSelectedDesigner}
+                    placeholder="Enter designer ID"
+                    autoComplete="off"
+                  />
+
+                  <TextField
+                    label="Royalty Percentage"
+                    type="number"
+                    value={royalty}
+                    onChange={setRoyalty}
+                    min={0}
+                    max={100}
+                    suffix="%"
+                    autoComplete="off"
+                  />
+                </FormLayout>
+              </BlockStack>
+            </Card>
+          </BlockStack>
+        </Form>
+      </Page>
+    </Frame>
   );
 }

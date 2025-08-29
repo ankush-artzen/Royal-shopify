@@ -6,10 +6,7 @@ export async function POST(req: NextRequest) {
     console.log("✅ Orders webhook hit at", new Date().toISOString());
 
     const shop = req.headers.get("x-shopify-shop-domain") || "";
-    console.log("Shop:", shop);
-
     const body = await req.json();
-    console.log("Webhook body:", JSON.stringify(body, null, 2));
 
     const orderId = body.id?.toString();
     const orderName = body.name;
@@ -17,87 +14,99 @@ export async function POST(req: NextRequest) {
     const currency = body.currency || "USD";
 
     if (!orderId || !body.line_items) {
-      console.warn("Missing order ID or line items");
       return NextResponse.json(
         { success: false, message: "Invalid order data" },
         { status: 400 }
       );
     }
 
-    const savedLineItems: any[] = [];
-    const savedTransactions: any[] = [];
+    const lineItemsToAdd: any[] = [];
 
-    // Process each line item
     for (const item of body.line_items) {
-      const shopifyProductId = `gid://shopify/Product/${item.product_id}`;
-      console.log("Processing line item:", item.title, "Product ID:", shopifyProductId);
+      const productIdNumeric = item.product_id.toString();
+      const productIdGid = `gid://shopify/Product/${productIdNumeric}`;
 
-      // Find product in DB
-      const product = await prisma.product.findFirst({
-        where: { shopifyId: shopifyProductId, shop },
-      });
-
-      if (!product) {
-        console.log("Product not found in DB:", shopifyProductId);
-        continue;
-      }
-
-      // Save line item
-      const lineItem = await prisma.royaltyLineItem.create({
-        data: {
-          orderId,
-          productId: product.id,
-          quantity: item.quantity,
-          unitPrice: parseFloat(item.price),
-          currency,
+      const royalties = await prisma.productRoyalty.findMany({
+        where: {
+          shop,
+          OR: [
+            { shopifyId: productIdNumeric },
+            { shopifyId: productIdGid },
+          ],
         },
       });
-      savedLineItems.push(lineItem);
 
-      // Find royalties for this product
-      const royalties = await prisma.productRoyalty.findMany({
-        where: { productId: product.id },
-        include: { designer: true },
-      });
+      if (!royalties.length) continue; 
 
-      if (royalties.length === 0) {
-        console.log("No royalties assigned for product:", product.id);
-        continue;
-      }
+      const quantity = item.quantity;
+      const unitPrice = parseFloat(item.price);
+      const lineTotal = unitPrice * quantity;
 
-      const lineTotal = parseFloat(item.price) * item.quantity;
-
-      // Create royalty transactions linked to this line item
       for (const royalty of royalties) {
-        const amount = (lineTotal * royalty.Royality) / 100;
+        const productRoyalityCalculatedAmount = (lineTotal * royalty.Royality) / 100;
+        const royaltypercentage = royalty.Royality;
 
-        const transaction = await prisma.royaltyTransaction.create({
-          data: {
-            shop,
-            orderId,
-            orderName,
-            productId: product.id,
-            designerId: royalty.designerId,
-            Royality: royalty.Royality,
-            amount,
-            quantity: item.quantity,
-            unitPrice: parseFloat(item.price),
-            currency,
-            createdAt,
-          },
+        lineItemsToAdd.push({
+          productId: royalty.productId,
+          title: item.title,
+          variantId: item.variant_id?.toString() || "",
+          variantTitle: item.variant_title || "",
+          designerId: royalty.designerId,
+          productRoyalityCalculatedAmount,
+          quantity,
+          unitPrice,
+          royaltypercentage,
         });
-
-        savedTransactions.push(transaction);
-        console.log(`Royalty transaction: designer ${royalty.designerId}, amount ${amount}`);
       }
     }
 
-    console.log("✅ Line items saved:", savedLineItems.length);
-    console.log("✅ Transactions saved:", savedTransactions.length);
+    if (lineItemsToAdd.length === 0) {
+      return NextResponse.json({
+        success: false,
+        message: "No royalty products in this order",
+      });
+    }
 
-    return NextResponse.json({ success: true, lineItems: savedLineItems, transactions: savedTransactions });
+    let royaltyOrder = await prisma.royaltyOrder.findFirst({
+      where: { shop, orderId },
+    });
+
+    if (!royaltyOrder) {
+      royaltyOrder = await prisma.royaltyOrder.create({
+        data: {
+          shop,
+          orderId,
+          orderName,
+          currency,
+          lineItem: lineItemsToAdd,
+          createdAt,
+          calculatedroyaltyamount: lineItemsToAdd.reduce(
+            (sum, li) => sum + li.productRoyalityCalculatedAmount,
+            0
+          ),
+        },
+      });
+    } else {
+      royaltyOrder = await prisma.royaltyOrder.update({
+        where: { id: royaltyOrder.id },
+        data: {
+          lineItem: {
+            set: [...royaltyOrder.lineItem, ...lineItemsToAdd],
+          },
+          calculatedroyaltyamount:
+            royaltyOrder.calculatedroyaltyamount +
+            lineItemsToAdd.reduce((sum, li) => sum + li.productRoyalityCalculatedAmount, 0),
+        },
+      });
+    }
+
+
+    return NextResponse.json({
+      success: true,
+      royaltyOrder,
+    });
   } catch (error: any) {
-    console.error("Error processing order webhook:", error);
+    console.error("❌ Error processing order webhook:", error);
     return NextResponse.json(
       { error: error.message || "Internal Server Error" },
       { status: 500 }

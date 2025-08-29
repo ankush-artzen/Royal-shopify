@@ -4,10 +4,7 @@ import prisma from "@/lib/db/prisma-connect";
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-
     const shop = searchParams.get("shop");
-    const designerId = searchParams.get("designerId");
-    const productId = searchParams.get("productId");
 
     if (!shop) {
       return NextResponse.json(
@@ -16,20 +13,18 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Build query conditions
-    const where: any = { shop };
-    if (designerId) where.designerId = designerId;
-    if (productId) where.productId = productId;
-
     const royalties = await prisma.productRoyalty.findMany({
-      where,
+      where: { shop },
     });
 
-    return NextResponse.json({ royalties });
-  } catch (err: any) {
-    console.error("Error fetching royalties:", err);
+    return NextResponse.json({
+      royalties,
+      totalProducts: royalties.length, 
+    });
+  } catch (error: any) {
+    console.error("Error fetching royalties:", error);
     return NextResponse.json(
-      { error: err.message || "Internal server error" },
+      { error: error.message || "Internal Server Error" },
       { status: 500 }
     );
   }

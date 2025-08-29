@@ -21,7 +21,8 @@ export function addHandlers() {
 
       ORDERS_CREATE: {
         deliveryMethod: DeliveryMethod.Http,
-        callbackUrl: `${process.env.APP_BASE_URL}/api/webhooks/orders/create`,        callback: async (_topic, shop, _body) => {
+        callbackUrl: `/api/webhooks/orders/create`,
+        callback: async (_topic, shop, _body) => {
           console.log(`ORDERS_CREATE webhook received for shop: ${shop}`);
         },
       },
