@@ -124,7 +124,7 @@ export default function HomePage() {
         body: JSON.stringify({
           name: "Royalty Usage Plan",
           price: 0,
-          cappedAmount: 5000,
+          cappedAmount: 500000,
           terms: `You will be billed royalties up to $5000/month`,
           test: true,
           shop,
