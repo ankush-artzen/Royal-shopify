@@ -48,16 +48,10 @@ export async function createRoyaltyTransactionForOrder({
   royaltypercentage,
   designerId,
 }: CreateRoyaltyTxParams) {
-  // 🔍 Check dedupe inside DB (ensures retries won’t double charge)
+  // 🔍 Check if transaction exists by orderId + productId + designerId
   const existingTx = await prisma.royaltyTransaction.findFirst({
     where: { shop, orderId, productId, designerId },
   });
-  if (existingTx) {
-    console.log(
-      `⚠️ Skipping duplicate royalty transaction [txId=${existingTx.id}, orderId=${orderId}]`
-    );
-    return existingTx;
-  }
 
   const subscriptionRecord = await getActiveRoyaltySubscriptionByShop(shop);
   const chargeId = subscriptionRecord?.chargeId;
@@ -113,7 +107,30 @@ export async function createRoyaltyTransactionForOrder({
     throw new Error(`Shopify did not return usage_charge for shop=${shop}`);
   }
 
-  // ✅ Save in DB
+  if (existingTx) {
+    // 🔄 Update instead of skipping
+    const updatedTx = await prisma.royaltyTransaction.update({
+      where: { id: existingTx.id },
+      data: {
+        shopifyTransactionChargeId: usageChargeData.id.toString(),
+        description: usageChargeData.description,
+        price: parseFloat(usageChargeData.price),
+        currency,
+        balanceUsed: parseFloat(usageChargeData.balance_used ?? "0"),
+        balanceRemaining: parseFloat(usageChargeData.balance_remaining ?? "0"),
+        royaltypercentage,
+        updatedAt: new Date(),
+      },
+    });
+
+    console.log(
+      `♻️ Updated RoyaltyTransaction [txId=${updatedTx.id}, orderId=${orderId}, price=${updatedTx.price}]`
+    );
+
+    return updatedTx;
+  }
+
+  // ✅ Create new record
   const royaltyTransaction = await prisma.royaltyTransaction.create({
     data: {
       shop,
