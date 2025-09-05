@@ -48,34 +48,38 @@ export async function createRoyaltyTransactionForOrder({
   royaltypercentage,
   designerId,
 }: CreateRoyaltyTxParams) {
-  // 🔍 Check if transaction exists by orderId + productId + designerId
-  const existingTx = await prisma.royaltyTransaction.findFirst({
+  // 1️⃣ Check DB for existing transaction
+  let existingTx = await prisma.royaltyTransaction.findFirst({
     where: { shop, orderId, productId, designerId },
   });
 
+  if (existingTx) {
+    // ♻️ Only update DB, skip Shopify API to prevent duplicate charges
+    const updatedTx = await prisma.royaltyTransaction.update({
+      where: { id: existingTx.id },
+      data: {
+        description,
+        price,
+        currency,
+        royaltypercentage,
+        updatedAt: new Date(),
+      },
+    });
+
+    console.log(
+      `♻️ Updated existing RoyaltyTransaction [txId=${updatedTx.id}, orderId=${orderId}]`
+    );
+    return updatedTx;
+  }
+
+  // 2️⃣ Transaction not found → create Shopify usage charge
   const subscriptionRecord = await getActiveRoyaltySubscriptionByShop(shop);
-  const chargeId = subscriptionRecord?.chargeId;
-  if (!chargeId) {
-    throw new Error(`No active chargeId for shop ${shop}`);
-  }
+  const chargeId = subscriptionRecord.chargeId!;
+  const sessions = (await findSessionsByShop(shop)) as SessionType[] | SessionType | null;
+  const token = Array.isArray(sessions) ? sessions[0]?.accessToken : sessions?.accessToken;
 
-  // 🔑 Get access token for shop
-  const sessions = (await findSessionsByShop(shop)) as
-    | SessionType[]
-    | SessionType
-    | null;
-  const token = Array.isArray(sessions)
-    ? sessions[0]?.accessToken
-    : sessions?.accessToken;
-  if (!token) {
-    throw new Error(`No access token found for shop: ${shop}`);
-  }
+  if (!token) throw new Error(`No access token found for shop: ${shop}`);
 
-  console.log(
-    `→ Creating Shopify usage charge for shop=${shop}, orderId=${orderId}, productId=${productId}, price=${price}`
-  );
-
-  // 📡 Hit Shopify API
   const resp = await fetch(
     `https://${shop}/admin/api/${API_VERSION}/recurring_application_charges/${chargeId}/usage_charges.json`,
     {
@@ -84,32 +88,25 @@ export async function createRoyaltyTransactionForOrder({
         "X-Shopify-Access-Token": token,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        usage_charge: {
-          description,
-          price,
-        },
-      }),
+      body: JSON.stringify({ usage_charge: { description, price } }),
     }
   );
 
   const data = await resp.json();
-  if (!resp.ok) {
-    throw new Error(
-      `Failed to create usage charge for shop=${shop}, orderId=${orderId}, chargeId=${chargeId}: ${JSON.stringify(
-        data
-      )}`
-    );
+  if (!resp.ok || !data.usage_charge) {
+    throw new Error(`Shopify usage charge failed: ${JSON.stringify(data)}`);
   }
 
-  const usageChargeData = data?.usage_charge;
-  if (!usageChargeData) {
-    throw new Error(`Shopify did not return usage_charge for shop=${shop}`);
-  }
+  const usageChargeData = data.usage_charge;
+
+  // 3️⃣ Double-check DB (race condition)
+  existingTx = await prisma.royaltyTransaction.findFirst({
+    where: { shop, orderId, productId, designerId },
+  });
 
   if (existingTx) {
-    // 🔄 Update instead of skipping
-    const updatedTx = await prisma.royaltyTransaction.update({
+    // Someone else already inserted it → update DB
+    return prisma.royaltyTransaction.update({
       where: { id: existingTx.id },
       data: {
         shopifyTransactionChargeId: usageChargeData.id.toString(),
@@ -122,15 +119,9 @@ export async function createRoyaltyTransactionForOrder({
         updatedAt: new Date(),
       },
     });
-
-    console.log(
-      `♻️ Updated RoyaltyTransaction [txId=${updatedTx.id}, orderId=${orderId}, price=${updatedTx.price}]`
-    );
-
-    return updatedTx;
   }
 
-  // ✅ Create new record
+  // 4️⃣ Safe to insert new transaction
   const royaltyTransaction = await prisma.royaltyTransaction.create({
     data: {
       shop,
