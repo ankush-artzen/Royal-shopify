@@ -1,10 +1,6 @@
+// app/api/charges/status/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db/prisma-connect";
-
-type SubscriptionStatus = {
-  active: boolean;
-  subscription?: any;
-};
 
 async function getActiveRoyaltySubscriptionByShop(shop: string) {
   const normalizedShop = shop.toLowerCase();
@@ -14,15 +10,10 @@ async function getActiveRoyaltySubscriptionByShop(shop: string) {
     where: { shop: normalizedShop, status: "active" },
   });
 
-  if (!record) {
-    console.log("⚠ No active subscription found for shop:", normalizedShop);
-    return null;
-  }
-
-  console.log("📦 Active subscription found:", record);
   return record;
 }
 
+// ✅ Named export for GET
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = req.nextUrl;
@@ -39,11 +30,7 @@ export async function GET(req: NextRequest) {
     const subscription = await getActiveRoyaltySubscriptionByShop(shop);
 
     if (subscription) {
-      const response: SubscriptionStatus = {
-        active: true,
-        subscription,
-      };
-      return NextResponse.json(response, { status: 200 });
+      return NextResponse.json({ active: true, subscription }, { status: 200 });
     } else {
       return NextResponse.json({ active: false }, { status: 200 });
     }

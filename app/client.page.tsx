@@ -46,29 +46,40 @@ export default function HomePage() {
     if (!shop) return;
 
     async function fetchData() {
+      setLoading(true);
+      setError(null);
+
       try {
+        // Fetch product counts
         const resCounts = await fetch(`/api/royality/counts?shop=${shop}`);
         const dataCounts = await resCounts.json();
 
-        if (resCounts.ok) {
-          setProductCount(dataCounts.totalProducts || 0);
-        } else {
-          setError(dataCounts.error || "Something went wrong fetching counts");
+        if (!resCounts.ok) {
+          throw new Error(
+            dataCounts?.error || "Failed fetching product counts",
+          );
         }
+        setProductCount(dataCounts.totalProducts || 0);
 
+        // Fetch total royalties and orders
         const resTotals = await fetch(
           `/api/royality/orders/counts?shop=${shop}`,
         );
         const dataTotals = await resTotals.json();
 
-        if (resTotals.ok) {
-          settotalRoyaltyAmount(dataTotals.totalRoyaltyAmount || 0);
-          settotalOrders(dataTotals.totalOrders || 0);
-        } else {
-          setError(dataTotals.error || "Something went wrong fetching totals");
+        if (!resTotals.ok) {
+          throw new Error(
+            dataTotals?.error || "Failed fetching royalty totals",
+          );
         }
-      } catch (err) {
-        setError("Failed to fetch data");
+        settotalRoyaltyAmount(dataTotals.totalRoyaltyAmount || 0);
+        settotalOrders(dataTotals.totalOrders || 0);
+      } catch (err: any) {
+        console.error("Error fetching stats:", err);
+        setError(err.message || "Failed to fetch data");
+        setProductCount(0);
+        settotalRoyaltyAmount(0);
+        settotalOrders(0);
       } finally {
         setLoading(false);
       }
@@ -148,21 +159,17 @@ export default function HomePage() {
               About Us{" "}
             </Text>
             <BlockStack gap="200" align="center">
-              <Text
-                as="p"
-                variant="bodyLg"
-                tone="subdued"
-              >
+              <Text as="h2" variant="bodyLg" tone="subdued">
                 A royalty management system that tracks and calculates payments
                 owed to creators. Collect sales data, aggregate earnings, and
                 ensure timely distribution with ease.
               </Text>
-              <Button
-                variant="primary"
-                onClick={() => router.push("/royalty/create")}
-              >
-                Get Started
-              </Button>
+              <InlineStack>
+                <Button onClick={() => router.push("/royalty/create")}
+                  variant="primary">
+                  Get Started
+                </Button>
+              </InlineStack>
             </BlockStack>
           </Card>
         </Layout.Section>

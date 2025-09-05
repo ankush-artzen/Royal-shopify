@@ -23,7 +23,7 @@ export async function doServerAction(sessionIdToken: string): Promise<{
       },
     };
   } catch (error) {
-    console.log(error);
+    console.log("Session Token errror:",error);
     return {
       status: "error",
     };

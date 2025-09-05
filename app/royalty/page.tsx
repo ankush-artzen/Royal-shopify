@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   Page,
   Card,
@@ -20,6 +20,8 @@ import { useAppBridge } from "@shopify/app-bridge-react";
 import { useRouter } from "next/navigation";
 import EditRoyaltyModal from "../components/editroyality";
 import DeleteConfirmationModal from "../components/dialog";
+import { Icon } from "@shopify/polaris";
+import { ChevronLeftIcon, ChevronRightIcon } from "@shopify/polaris-icons";
 
 interface Royalty {
   id: string;
@@ -37,6 +39,8 @@ interface Royalty {
 interface ApiResponse {
   royalties: Royalty[];
   count: number;
+  page: number;
+  totalPages: number;
 }
 
 export default function RoyaltiesPage() {
@@ -48,46 +52,65 @@ export default function RoyaltiesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [page, setPage] = useState(1);
+  const limit = 8;
+  const [totalPages, setTotalPages] = useState(1);
+
   const [activeEdit, setActiveEdit] = useState<Royalty | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Royalty | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
-  // Toast states
-  const [toastContent, setToastContent] = useState<string | null>(null);
+  // ✅ Toast state
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastError, setToastError] = useState(false);
 
-  useEffect(() => {
-    const shopFromConfig = app?.config?.shop;
-    if (shopFromConfig) {
-      setShop(shopFromConfig);
-    } else {
-      setError("Unable to retrieve shop info. Please reload the app.");
-    }
-  }, [app]);
-
-  // Fetch royalties
-  const fetchRoyalties = async () => {
-    if (!shop) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/royality?shop=${shop}`);
-      if (!res.ok) throw new Error("Failed to fetch royalties");
-
-      const data: ApiResponse = await res.json();
-      setRoyalties(data.royalties || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setLoading(false);
-    }
+  const showToast = (message: string, error: boolean = false) => {
+    setToastMessage(message);
+    setToastError(error);
   };
 
+  // ✅ Get shop from AppBridge config
   useEffect(() => {
-    fetchRoyalties();
-  }, [shop]);
+    const shopFromConfig = app?.config?.shop;
+    if (shopFromConfig) setShop(shopFromConfig);
+    else setError("Unable to retrieve shop info. Please reload the app.");
+  }, [app]);
 
-  // Delete royalty
+  // ✅ Fetch royalties
+  const fetchRoyalties = useCallback(
+    async (pageNumber: number = 1) => {
+      if (!shop) return;
+      setLoading(true);
+      setError(null);
+
+      try {
+        const res = await fetch(
+          `/api/royality?shop=${shop}&page=${pageNumber}&limit=${limit}`,
+        );
+        if (!res.ok) throw new Error("Failed to fetch royalties");
+
+        const data: ApiResponse = await res.json();
+        setRoyalties(data.royalties || []);
+        setPage(data.page || 1);
+        setTotalPages(data.totalPages || 1);
+      } catch (err) {
+        showToast(
+          err instanceof Error ? err.message : "Something went wrong",
+          true,
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [shop, limit],
+  );
+
+  // ✅ Fetch on shop/page change
+  useEffect(() => {
+    if (shop) fetchRoyalties(page);
+  }, [shop, page, fetchRoyalties]);
+
+  // ✅ Delete royalty
   const handleDelete = async () => {
     if (!shop || !deleteTarget) return;
     setDeleteLoading(true);
@@ -101,22 +124,19 @@ export default function RoyaltiesPage() {
         const errorData = await res.json();
         throw new Error(errorData.error || "Failed to delete royalty");
       }
-      await fetchRoyalties();
-      setToastContent("Royalty deleted successfully");
-      setToastError(false);
-      setDeleteTarget(null); // close modal
+      await fetchRoyalties(page);
+      showToast("Royalty deleted successfully");
+      setDeleteTarget(null);
     } catch (err) {
-      setToastContent(err instanceof Error ? err.message : "Something went wrong");
-      setToastError(true);
+      showToast(err instanceof Error ? err.message : "Something went wrong", true);
     } finally {
       setDeleteLoading(false);
     }
   };
 
-  // Edit royalty
+  // ✅ Update royalty
   const handleUpdate = async (shopifyId: string, newRoyality: number) => {
     if (!shop || !shopifyId) return;
-
     try {
       const res = await fetch(
         `/api/royality/product/${shopifyId}/edit?shop=${shop}`,
@@ -126,21 +146,21 @@ export default function RoyaltiesPage() {
           body: JSON.stringify({ Royality: newRoyality }),
         },
       );
-
       if (!res.ok) {
         const errorData = await res.json();
         throw new Error(errorData.error || "Failed to update royalty");
       }
-
-      await fetchRoyalties();
+      await fetchRoyalties(page);
       setActiveEdit(null);
-      setToastContent("Royalty updated successfully");
-      setToastError(false);
+      showToast("Royalty updated successfully");
     } catch (err) {
-      setToastContent(err instanceof Error ? err.message : "Something went wrong");
-      setToastError(true);
+      showToast(err instanceof Error ? err.message : "Something went wrong", true);
     }
   };
+
+  // ✅ Pagination
+  const handlePrev = () => page > 1 && setPage(page - 1);
+  const handleNext = () => page < totalPages && setPage(page + 1);
 
   return (
     <Frame>
@@ -158,7 +178,7 @@ export default function RoyaltiesPage() {
           ) : royalties.length === 0 ? (
             <EmptyState
               heading="No royalties assigned yet"
-              action={{ content: "Assign Royalty", url: "/royalties/new" }}
+              action={{ content: "Assign Royalty", url: "/royalty/create" }}
               image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
             >
               <p>
@@ -167,93 +187,109 @@ export default function RoyaltiesPage() {
               </p>
             </EmptyState>
           ) : (
-            <IndexTable
-              resourceName={{ singular: "royalty", plural: "royalties" }}
-              itemCount={royalties.length}
-              selectable={false}
-              headings={[
-                { title: "Product" },
-                { title: "Royalty %", alignment: "center" },
-                { title: "Price", alignment: "center" },
-                { title: "Actions", alignment: "center" },
-              ]}
-            >
-              {royalties.map((royalty, index) => (
-                <IndexTable.Row
-                  id={royalty.id}
-                  key={royalty.id}
-                  position={index}
+            <>
+              <IndexTable
+                resourceName={{ singular: "royalty", plural: "royalties" }}
+                itemCount={royalties.length}
+                selectable={false}
+                headings={[
+                  { title: "Product" },
+                  { title: "Royalty %", alignment: "center" },
+                  { title: "Price", alignment: "center" },
+                  { title: "Actions", alignment: "center" },
+                ]}
+              >
+                {royalties.map((royalty, index) => (
+                  <IndexTable.Row id={royalty.id} key={royalty.id} position={index}>
+                    <IndexTable.Cell>
+                      <div className="flex items-center gap-2 min-w-[220px] max-w-[240px] truncate">
+                        <Thumbnail
+                          source={
+                            royalty.image ||
+                            "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png"
+                          }
+                          alt={royalty.title}
+                        />
+                        <Text as="span" truncate>
+                          {royalty.title}
+                        </Text>
+                      </div>
+                    </IndexTable.Cell>
+
+                    <IndexTable.Cell>
+                      <div className="flex justify-center min-w-[100px]">
+                        <Badge tone="success">{`${royalty.Royality}%`}</Badge>
+                      </div>
+                    </IndexTable.Cell>
+
+                    <IndexTable.Cell>
+                      <div className="flex justify-center min-w-[120px]">
+                        {royalty.price !== null && royalty.price !== undefined
+                          ? royalty.price.toFixed(2)
+                          : "—"}
+                      </div>
+                    </IndexTable.Cell>
+
+                    <IndexTable.Cell>
+                      <div className="flex justify-end w-full gap-5 pr-12">
+                        <Tooltip content="Edit Royalty">
+                          <Button
+                            size="slim"
+                            icon={EditIcon}
+                            onClick={() => setActiveEdit(royalty)}
+                          />
+                        </Tooltip>
+                        <Tooltip content="Delete Royalty">
+                          <Button
+                            size="slim"
+                            tone="critical"
+                            icon={DeleteIcon}
+                            onClick={() => setDeleteTarget(royalty)}
+                          />
+                        </Tooltip>
+                        <Tooltip content="View Product in Shopify Admin">
+                          <Button
+                            size="slim"
+                            icon={ViewIcon}
+                            onClick={() => {
+                              if (!shop) return;
+                              const storeHandle = shop.replace(".myshopify.com", "");
+                              const shopifyAdminUrl = `https://admin.shopify.com/store/${storeHandle}/products/${royalty.shopifyId}`;
+                              window.open(shopifyAdminUrl, "_blank");
+                            }}
+                          />
+                        </Tooltip>
+                      </div>
+                    </IndexTable.Cell>
+                  </IndexTable.Row>
+                ))}
+              </IndexTable>
+
+              {/* Pagination */}
+              <div className="flex items-center justify-center gap-6 py-4">
+                <button
+                  disabled={page <= 1}
+                  onClick={handlePrev}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-800 
+               hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition"
                 >
-                  {/* Product info */}
-                  <IndexTable.Cell>
-                    <div className="flex items-center gap-2 min-w-[220px] max-w-[240px] truncate">
-                      <Thumbnail
-                        source={
-                          royalty.image ||
-                          "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png"
-                        }
-                        alt={royalty.title}
-                      />
-                      <Text as="span" truncate>
-                        {royalty.title}
-                      </Text>
-                    </div>
-                  </IndexTable.Cell>
+                  <Icon source={ChevronLeftIcon} tone="base" />
+                </button>
 
-                  {/* Royalty % */}
-                  <IndexTable.Cell>
-                    <div className="flex justify-center min-w-[100px]">
-                      <Badge tone="success">{`${royalty.Royality}%`}</Badge>
-                    </div>
-                  </IndexTable.Cell>
+                <span className="text-sm font-medium">
+                  Page {page} of {totalPages}
+                </span>
 
-                  {/* Price */}
-                  <IndexTable.Cell>
-                    <div className="flex justify-center min-w-[120px]">
-                      {royalty.price !== null && royalty.price !== undefined
-                        ? royalty.price.toFixed(2)
-                        : "—"}
-                    </div>
-                  </IndexTable.Cell>
-
-                  {/* Actions */}
-                  <IndexTable.Cell>
-                    <div className="flex justify-end w-full gap-5 pr-12">
-                      <Tooltip content="Edit Royalty">
-                        <Button
-                          size="slim"
-                          icon={EditIcon}
-                          onClick={() => setActiveEdit(royalty)}
-                        />
-                      </Tooltip>
-                      <Tooltip content="Delete Royalty">
-                        <Button
-                          size="slim"
-                          tone="critical"
-                          icon={DeleteIcon}
-                          onClick={() => setDeleteTarget(royalty)}
-                        />
-                      </Tooltip>
-                      <Tooltip content="View Product in Shopify Admin">
-                        <Button
-                          size="slim"
-                          icon={ViewIcon}
-                          onClick={() => {
-                            if (!shop) return;
-                            const storeHandle = shop.replace(
-                              ".myshopify.com",
-                              "",
-                            );
-                            const shopifyAdminUrl = `https://admin.shopify.com/store/${storeHandle}/products/${royalty.shopifyId}`;
-                            window.open(shopifyAdminUrl, "_blank");
-                          }}
-                        />
-                      </Tooltip>
-                    </div>
-                  </IndexTable.Cell>
-                </IndexTable.Row>
-              ))}
-            </IndexTable>
+                <button
+                  disabled={page >= totalPages}
+                  onClick={handleNext}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-800 
+               hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                >
+                  <Icon source={ChevronRightIcon} tone="base" />
+                </button>
+              </div>
+            </>
           )}
         </Card>
 
@@ -281,12 +317,12 @@ export default function RoyaltiesPage() {
           />
         )}
 
-        {/* Toast Notification */}
-        {toastContent && (
+        {/* Toast Notifications */}
+        {toastMessage && (
           <Toast
-            content={toastContent}
+            content={toastMessage}
             error={toastError}
-            onDismiss={() => setToastContent(null)}
+            onDismiss={() => setToastMessage(null)}
           />
         )}
       </Page>

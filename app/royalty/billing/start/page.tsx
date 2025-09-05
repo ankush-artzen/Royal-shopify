@@ -63,6 +63,8 @@ export default function HomePage() {
   const [creatingPlan, setCreatingPlan] = useState(false);
   const [planError, setPlanError] = useState<string | null>(null);
   const [confirmationUrl, setConfirmationUrl] = useState<string | null>(null);
+  const [billingApproved, setBillingApproved] = useState(false);
+  const [checkingBilling, setCheckingBilling] = useState(true);
 
   // Get shop from App Bridge
   useEffect(() => {
@@ -147,55 +149,78 @@ export default function HomePage() {
     }
   };
 
+  useEffect(() => {
+    if (!shop) return;
+
+    async function checkBilling() {
+      setCheckingBilling(true);
+      try {
+        const res = await fetch(`/api/charges/status?shop=${shop}`);
+        const data = await res.json();
+        console.log("Billing status:", data);
+
+        if (res.ok && data.active) {
+          setBillingApproved(true);
+        }
+      } catch (err) {
+        console.error("Error checking billing status:", err);
+      } finally {
+        setCheckingBilling(false);
+      }
+    }
+
+    checkBilling();
+  }, [shop]);
+
   // Pay all pending royalties: create usage charge
-  const payPendingRoyalties = async () => {
-    if (!shop) return setPlanError("Shop info missing");
+  // const payPendingRoyalties = async () => {
+  //   if (!shop) return setPlanError("Shop info missing");
 
-    if (totalRoyaltyAmount <= 0) {
-      console.log("No royalties to pay");
-      return setPlanError("No royalties to pay");
-    }
+  //   if (totalRoyaltyAmount <= 0) {
+  //     console.log("No royalties to pay");
+  //     return setPlanError("No royalties to pay");
+  //   }
 
-    console.log(
-      "Paying pending royalties:",
-      totalRoyaltyAmount,
-      "for",
-      totalOrders,
-      "orders",
-    );
-    setCreatingPlan(true);
-    setPlanError(null);
+  //   console.log(
+  //     "Paying pending royalties:",
+  //     totalRoyaltyAmount,
+  //     "for",
+  //     totalOrders,
+  //     "orders",
+  //   );
+  //   setCreatingPlan(true);
+  //   setPlanError(null);
 
-    try {
-      const res = await fetch(
-        `/api/charges/billing/start/usage?shop=${encodeURIComponent(shop)}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            description: `Royalty for ${totalOrders} sales`,
-            price: Number(totalRoyaltyAmount.toFixed(2)),
-          }),
-        },
-      );
+  //   try {
+  //     const res = await fetch(
+  //       `/api/charges/billing/start/usage?shop=${encodeURIComponent(shop)}`,
+  //       {
+  //         method: "POST",
+  //         headers: { "Content-Type": "application/json" },
+  //         body: JSON.stringify({
+  //           description: `Royalty for ${totalOrders} sales`,
+  //           price: Number(totalRoyaltyAmount.toFixed(2)),
+  //         }),
+  //       },
+  //     );
 
-      const data = await res.json();
-      console.log("Usage charge API response:", data);
+  //     const data = await res.json();
+  //     console.log("Usage charge API response:", data);
 
-      if (!res.ok)
-        throw new Error(data.error || "Failed to create usage charge");
+  //     if (!res.ok)
+  //       throw new Error(data.error || "Failed to create usage charge");
 
-      setToastActive(true);
-      setTotalRoyaltyAmount(0);
-      console.log("Royalty paid and totalRoyaltyAmount reset to 0");
-    } catch (err: any) {
-      console.error("Error creating usage charge:", err);
-      setPlanError(err.message || "Unexpected error occurred");
-    } finally {
-      setCreatingPlan(false);
-      console.log("Pay royalties finished. CreatingPlan:", false);
-    }
-  };
+  //     setToastActive(true);
+  //     setTotalRoyaltyAmount(0);
+  //     console.log("Royalty paid and totalRoyaltyAmount reset to 0");
+  //   } catch (err: any) {
+  //     console.error("Error creating usage charge:", err);
+  //     setPlanError(err.message || "Unexpected error occurred");
+  //   } finally {
+  //     setCreatingPlan(false);
+  //     console.log("Pay royalties finished. CreatingPlan:", false);
+  //   }
+  // };
 
   console.log("HomePage render:", {
     shop,
@@ -229,41 +254,44 @@ export default function HomePage() {
             <br />
             <Button
               variant="primary"
-              disabled={loading || creatingPlan}
-              loading={creatingPlan}
+              disabled={
+                loading || creatingPlan || checkingBilling || billingApproved
+              }
+              loading={creatingPlan || checkingBilling}
               onClick={startRoyaltyPlan}
             >
-              Enable Royalty Billing
+              {billingApproved
+                ? "Billing Enabled"
+                : checkingBilling
+                  ? "Checking Billing..."
+                  : "Enable Royalty Billing"}
             </Button>
           </Card>
         </Layout.Section>
 
         {/* Quick Stats */}
         <Layout.Section>
-          <Card>
-            <BlockStack gap="200">
-              <Text as="h2" fontWeight="bold" variant="headingMd">
-                Quick Insights
-              </Text>
-              <Card background="bg-fill-active">
-                <InlineStack align="center">
-                  <BlockStack>
-                    <Text as="h2" variant="headingMd" fontWeight="semibold">
-                      Total Royalties Amount:
-                    </Text>
-                    <Text as="h2" variant="bodyMd" tone="subdued">
-                      Total royalty tracked by all orders
-                    </Text>
-                  </BlockStack>
+          <Card background="bg-fill-active">
+            <InlineStack align="center">
+              <BlockStack>
+                <Text as="h2" variant="headingMd" fontWeight="semibold">
+                  Total Royalties Amount:
+                </Text>
+                <Text as="h2" variant="bodyMd" tone="subdued">
+                  Total royalty tracked by all orders
+                </Text>
+              </BlockStack>
 
-                  <BlockStack>
-                    <Text as="h2" variant="headingLg" fontWeight="bold">
-                      {totalRoyaltyAmount.toFixed(2)}
-                    </Text>
-                  </BlockStack>
-                </InlineStack>
-              </Card>
-            </BlockStack>
+              <BlockStack>
+                {loading ? (
+                  <Spinner size="small" />
+                ) : (
+                  <Text as="h2" variant="headingLg" fontWeight="bold">
+                    {totalRoyaltyAmount.toFixed(2)}
+                  </Text>
+                )}
+              </BlockStack>
+            </InlineStack>
           </Card>
         </Layout.Section>
 

@@ -5,92 +5,103 @@ import prisma from "@/lib/db/prisma-connect";
 const API_VERSION = "2025-07";
 
 export async function GET(req: NextRequest) {
+  console.log("===== 🟢 Billing Callback Handler START =====");
+  console.log("🔗 Incoming request URL:", req.url);
+
   try {
     const { searchParams } = new URL(req.url);
-    let shop = searchParams.get("shop");
-    const chargeId = searchParams.get("charge_id"); 
-    const hostParam = searchParams.get("host");
+    let shop = searchParams.get("shop") || "";
+    const chargeId = searchParams.get("charge_id") || "";
+    let hostParam = searchParams.get("host") || "";
 
-    console.log("🔎 Callback params:", { shop, chargeId, hostParam });
-
-    // Fallback: if no shop param, try to decode from host
+    // Decode host if needed
     if (!shop && hostParam) {
-      const decodedHost = Buffer.from(hostParam, "base64").toString("utf8");
-      shop = decodedHost.replace("/admin", "");
-      console.log("ℹ️ Extracted shop from host:", shop);
+      try {
+        const decodedHost = Buffer.from(hostParam, "base64").toString("utf8");
+        shop = decodedHost.replace("/admin", "");
+      } catch (err) {
+        console.error("⚠️ Failed to decode host:", err);
+      }
     }
 
-    if (!shop || !chargeId) {
-      console.error("❌ Missing shop or chargeId in callback");
-      return NextResponse.redirect(`${process.env.HOST}/app?billing=missing_params`);
-    }
+    console.log("🔎 Extracted:", { shop, chargeId, hostParam });
 
-    const sessions = await findSessionsByShop(shop);
+    // Always try to fetch token
+    const sessions = shop ? await findSessionsByShop(shop) : [];
     const token = sessions?.[0]?.accessToken;
 
-    if (!token) {
-      console.error("❌ No access token found for shop:", shop);
-      return NextResponse.redirect(`${process.env.HOST}/app?billing=no_token`);
+    // Always try to fetch charge
+    let rac: any = null;
+    if (shop && chargeId && token) {
+      const chargeUrl = `https://${shop}/admin/api/${API_VERSION}/recurring_application_charges/${chargeId}.json`;
+      const resp = await fetch(chargeUrl, {
+        headers: { "X-Shopify-Access-Token": token },
+      });
+      const data = await resp.json();
+      rac = data?.recurring_application_charge || null;
+
+      // Try activation if still pending
+      if (rac?.status === "pending") {
+        const activateUrl = `https://${shop}/admin/api/${API_VERSION}/recurring_application_charges/${chargeId}/activate.json`;
+        const activateRes = await fetch(activateUrl, {
+          method: "POST",
+          headers: {
+            "X-Shopify-Access-Token": token,
+            "Content-Type": "application/json",
+          },
+        });
+        const activateData = await activateRes.json();
+        rac = activateData?.recurring_application_charge || rac;
+      }
+
+      // Save to DB even if not active yet
+      if (rac) {
+        await prisma.royaltySubscription.upsert({
+          where: { shop },
+          update: {
+            chargeId: rac.id?.toString(),
+            planName: rac.name,
+            cappedAmount: rac.capped_amount
+              ? parseFloat(rac.capped_amount)
+              : null,
+            currency: rac.currency,
+            status: rac.status,
+            test: rac.test,
+          },
+          create: {
+            shop,
+            chargeId: rac.id?.toString(),
+            planName: rac.name,
+            cappedAmount: rac.capped_amount
+              ? parseFloat(rac.capped_amount)
+              : null,
+            currency: rac.currency,
+            status: rac.status,
+            test: rac.test,
+          },
+        });
+      }
     }
 
-    // Confirm the charge with Shopify
-    const resp = await fetch(
-      `https://${shop}/admin/api/${API_VERSION}/recurring_application_charges/${chargeId}.json`,
-      { headers: { "X-Shopify-Access-Token": token } }
-    );
-
-    const data = await resp.json();
-    console.log("🔎 Charge response:", data);
-
-    const rac = data?.recurring_application_charge;
-    if (!resp.ok || !rac) {
-      console.error("❌ Failed to fetch charge info");
-      return NextResponse.redirect(`${process.env.HOST}/app?billing=fetch_failed`);
-    }
-
-    if (rac.status !== "active") {
-      console.error("❌ Charge is not active:", rac.status);
-      return NextResponse.redirect(`${process.env.HOST}/app?billing=not_active`);
-    }
-
-    await prisma.royaltySubscription.upsert({
-      where: { shop },
-      update: {
-        chargeId: rac.id.toString(),
-        planName: rac.name,
-        cappedAmount: rac.capped_amount ? parseFloat(rac.capped_amount) : null, 
-        currency: rac.currency,
-        status: rac.status,
-        test: rac.test,
-      },
-      create: {
-        shop,
-        chargeId: rac.id.toString(),
-        planName: rac.name,
-        cappedAmount: rac.capped_amount ? parseFloat(rac.capped_amount) : null,
-        currency: rac.currency,
-        status: rac.status,
-        test: rac.test,
-      },
-    });
-    
-
-    console.log("✅ Subscription saved for shop:", shop);
-
-    // Re-encode host safely
-    const encodedHost =
-      hostParam ||
-      Buffer.from(`${shop}/admin`, "utf8")
+    // Fallback host generation
+    if (!hostParam && shop) {
+      hostParam = Buffer.from(`${shop}/admin`, "utf8")
         .toString("base64")
         .replace(/=/g, "");
+    }
 
-    const redirectUrl = `https://${shop}/admin/apps/${process.env.SHOPIFY_API_KEY}/royalty/billing/start?shop=${shop}&host=${encodedHost}`;
+    // Always redirect back
+    const redirectUrl = shop && hostParam
+      ? `https://${shop}/admin/apps/${process.env.SHOPIFY_API_KEY}/royalty/billing/start?host=${hostParam}`
+      : `${process.env.HOST}/app?billing=done`;
 
-    console.log("✅ Redirecting back to Shopify app:", redirectUrl);
+    console.log("🚀 Redirecting to:", redirectUrl);
+    console.log("===== 🟢 Billing Callback Handler END =====");
 
     return NextResponse.redirect(redirectUrl);
   } catch (error: any) {
     console.error("❌ Callback error:", error?.message || error);
+    console.log("===== 🔴 Billing Callback Handler CRASH =====");
     return NextResponse.redirect(`${process.env.HOST}/app?billing=error`);
   }
 }

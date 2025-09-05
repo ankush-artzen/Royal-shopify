@@ -80,6 +80,8 @@ model ProductRoyalty {
   designerId String
   Royality   Float
   shop       String?
+  totalSold        Int     @default(0) 
+  totalRoyaltyEarned Float  @default(0)
 
   designer   Designer @relation(fields: [designerId], references: [id])
 
@@ -125,16 +127,21 @@ model RoyaltySubscription {
   updatedAt    DateTime @updatedAt
 }
 
+
 model RoyaltyTransaction {
-  id              String   @id @default(auto()) @map("_id") @db.ObjectId
-  shop            String   
+  id                        String   @id @default(auto()) @map("_id") @db.ObjectId
+  shop                      String   
   shopifyTransactionChargeId String
-  orderId         String
-  description     String
-  price           Float
-  currency        String
-  balanceUsed     Float
-  balanceRemaining Float
-  createdAt       DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  orderId                   String
+  productId                 String?  
+  description               String
+  price                     Float
+  currency                  String
+  balanceUsed               Float
+  balanceRemaining          Float
+  royaltypercentage         Float?     
+  designerId                String?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
 }
+

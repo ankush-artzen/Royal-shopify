@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
       shopifyId,
     } = body;
 
-    // 🔹 Basic validation
+    // 🔹 Basic validation for required fields
     if (
       !shop ||
       !productId ||
@@ -33,18 +33,24 @@ export async function POST(req: NextRequest) {
           error:
             "Missing or invalid shop, productId, title, Royality, or designerId",
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    if (!ObjectId.isValid(designerId)) {
+    // 🔹 Ensure designerId follows your manual format (e.g., RA870740885)
+    const designerIdPattern = /^RA\d{9}$/; // starts with RA + 9 digits
+    if (!designerIdPattern.test(designerId)) {
       return NextResponse.json(
-        { error: `Invalid Designer ID format: ${designerId}` },
-        { status: 400 }
+        {
+          error: `Invalid Designer ID format: ${designerId}. Expected format: RA#########`,
+        },
+        { status: 400 },
       );
     }
 
-    // 🔹 Check if designer exists
+    // 🔹 (COMMENTED OUT) Designer existence check
+    //   👉 Skipped since you want to enter designerId manually
+    /*
     const designerExists = await prisma.designer.findUnique({
       where: { id: designerId },
     });
@@ -57,8 +63,24 @@ export async function POST(req: NextRequest) {
         { status: 404 }
       );
     }
+    */
 
-    // 🔹 Check if royalty already exists
+    // 🔹 Ensure this product is NOT already assigned to another designer
+    const productAlreadyAssigned = await prisma.productRoyalty.findFirst({
+      where: { productId },
+    });
+
+    if (productAlreadyAssigned) {
+      return NextResponse.json(
+        {
+          error: `This product is already assigned to designer ${productAlreadyAssigned.designerId}`,
+        },
+        { status: 400 },
+      );
+    }
+
+    // 🔹 Extra check (not strictly needed since productAlreadyAssigned covers it)
+    //   But this prevents duplicate (productId + designerId) combinations
     const existingRoyalty = await prisma.productRoyalty.findFirst({
       where: { productId, designerId },
     });
@@ -68,20 +90,20 @@ export async function POST(req: NextRequest) {
         {
           error: "Royalty already assigned for this product & designer",
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    // 🔹 Create royalty
+    // 🔹 Create royalty record
     const royalty = await prisma.productRoyalty.create({
       data: {
         productId,
-        shopifyId: shopifyId || productId,
+        shopifyId: shopifyId || productId, // fallback if shopifyId not provided
         title,
         image: image || null,
         status: status || "active",
         price: price ? parseFloat(price) : null,
-        designerId,
+        designerId, // directly use manual designerId
         Royality: parseFloat(Royality),
         shop,
       },
@@ -95,7 +117,7 @@ export async function POST(req: NextRequest) {
     console.error("Error creating royalty:", err);
     return NextResponse.json(
       { error: "Something went wrong while assigning royalty." },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

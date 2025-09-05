@@ -22,9 +22,9 @@ export function addHandlers() {
       ORDERS_CREATE: {
         deliveryMethod: DeliveryMethod.Http,
         callbackUrl: `/api/webhooks/orders/create`,
-        callback: async (_topic, shop, _body) => {
-          console.log(`ORDERS_CREATE webhook received for shop: ${shop}`);
-        },
+        // callback: async (_topic, shop, _body) => {
+        //   console.log(`ORDERS_CREATE webhook received for shop: ${shop}`);
+        // },
       },
     });
 

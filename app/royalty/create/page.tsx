@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   Page,
   Card,
@@ -15,7 +15,8 @@ import {
   Toast,
   Frame,
   Divider,
-  InlineGrid,
+  Banner,
+  Spinner,
 } from "@shopify/polaris";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { useRouter } from "next/navigation";
@@ -24,7 +25,10 @@ export default function AssignRoyalty() {
   const app = useAppBridge();
   const router = useRouter();
 
-  const [shop, setShop] = useState<string>("");
+  const [shop, setShop] = useState<string | null>(null);
+  const [billingActive, setBillingActive] = useState<boolean | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
   const [selectedDesigner, setSelectedDesigner] = useState<string>("");
   const [selectedProduct, setSelectedProduct] = useState<{
     id: string;
@@ -35,7 +39,6 @@ export default function AssignRoyalty() {
   const [royalty, setRoyalty] = useState<string>("");
   const [loading, setLoading] = useState(false);
 
-  // ✅ Toast
   const [toastActive, setToastActive] = useState(false);
   const [toastContent, setToastContent] = useState("");
   const [toastError, setToastError] = useState(false);
@@ -47,11 +50,30 @@ export default function AssignRoyalty() {
     setToastActive(true);
   };
 
+  // ✅ Step 1: Fetch shop info from App Bridge
   useEffect(() => {
     const shopFromConfig = (app as any)?.config?.shop;
-    if (shopFromConfig) setShop(shopFromConfig);
+    if (shopFromConfig) {
+      setShop(shopFromConfig);
+    } else {
+      setError("Unable to retrieve shop info. Please reload the app.");
+    }
   }, [app]);
 
+  // ✅ Step 2: Fetch billing status once shop is available
+  useEffect(() => {
+    if (!shop) return;
+
+    fetch(`/api/charges/status?shop=${shop}`)
+      .then((res) => res.json())
+      .then((data) => setBillingActive(data.active))
+      .catch(() => {
+        setBillingActive(false);
+        showToast("Failed to fetch billing status", true);
+      });
+  }, [shop]);
+
+  // ✅ Handle Royalty Assignment
   const handleSubmit = async () => {
     if (!selectedDesigner || !selectedProduct || !royalty) {
       showToast("All fields are required", true);
@@ -101,8 +123,13 @@ export default function AssignRoyalty() {
     }
   };
 
-  //  Product picker
+  // ✅ Product Picker
   const selectProducts = async () => {
+    if (!billingActive) {
+      showToast("Please enable billing before selecting products", true);
+      return;
+    }
+
     const pickerResult = await (app as any).resourcePicker({
       type: "product",
       multiple: false,
@@ -121,6 +148,34 @@ export default function AssignRoyalty() {
     }
   };
 
+  // ✅ Centered loader while fetching shop or billing
+  if (!shop || billingActive === null) {
+    return (
+      <Frame>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            height: "100vh",
+          }}
+        >
+          <Spinner size="large" accessibilityLabel="Loading..." />
+        </div>
+      </Frame>
+    );
+  }
+
+  if (error) {
+    return (
+      <Frame>
+        <Banner title="Error" tone="critical">
+          <p>{error}</p>
+        </Banner>
+      </Frame>
+    );
+  }
+
   return (
     <Frame>
       {toastActive && (
@@ -138,9 +193,21 @@ export default function AssignRoyalty() {
           content: "Save",
           onAction: handleSubmit,
           loading,
-          disabled: loading,
+          disabled: loading || !billingActive,
         }}
       >
+        {billingActive === false && (
+          <Banner
+            title="Enable billing to assign royalties"
+            tone="critical"
+          >
+            <p>
+              You need an active subscription before assigning royalties to products. 
+              Please enable billing in your Shopify admin first.
+            </p>
+          </Banner>
+        )}
+
         <Form onSubmit={handleSubmit}>
           <BlockStack gap="600">
             {/* Product Section */}
@@ -152,7 +219,7 @@ export default function AssignRoyalty() {
                 <Text as="p" tone="subdued">
                   Choose the product you want to assign a royalty to.
                 </Text>
-                <Button onClick={selectProducts} >
+                <Button onClick={selectProducts} disabled={!billingActive}>
                   {selectedProduct ? "Change Product" : "Choose Product"}
                 </Button>
 
@@ -172,9 +239,7 @@ export default function AssignRoyalty() {
                           ${selectedProduct.price}
                         </Text>
                       </BlockStack>
-                      <Button
-                        onClick={() => setSelectedProduct(null)}
-                      >
+                      <Button onClick={() => setSelectedProduct(null)}>
                         Remove
                       </Button>
                     </InlineStack>
@@ -197,6 +262,7 @@ export default function AssignRoyalty() {
                     onChange={setSelectedDesigner}
                     placeholder="Enter designer ID"
                     autoComplete="off"
+                    disabled={!billingActive}
                   />
 
                   <TextField
@@ -208,6 +274,7 @@ export default function AssignRoyalty() {
                     max={100}
                     suffix="%"
                     autoComplete="off"
+                    disabled={!billingActive}
                   />
                 </FormLayout>
               </BlockStack>
