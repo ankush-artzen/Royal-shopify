@@ -3,9 +3,6 @@ import { findSessionsByShop } from "@/lib/db/session-storage";
 
 const API_VERSION = "2025-07";
 
-// Track seen transactions in memory (per server instance)
-const seenTransactions = new Set<string>();
-
 type CreateRoyaltyTxParams = {
   shop: string;
   orderId: string;
@@ -26,11 +23,6 @@ type SessionType = {
   isOnline?: boolean;
   expires?: string | undefined;
 };
-
-// Helper: generate unique key
-function makeTxKey(shop: string, orderId: string, productId: string, designerId: string) {
-  return `${shop}|${orderId}|${productId}|${designerId}`;
-}
 
 async function getActiveRoyaltySubscriptionByShop(shop: string) {
   const normalizedShop = shop.toLowerCase();
@@ -56,23 +48,14 @@ export async function createRoyaltyTransactionForOrder({
   royaltypercentage,
   designerId,
 }: CreateRoyaltyTxParams) {
-  const txKey = makeTxKey(shop, orderId, productId, designerId);
-
-  // 0️⃣ Skip if already processed in this execution
-  if (seenTransactions.has(txKey)) {
-    console.log(`⚠️ Skipping duplicate transaction (in-memory) [${txKey}]`);
-    return null;
-  }
-  seenTransactions.add(txKey);
-
-  // 1️⃣ Check DB for existing transaction
-  let existingTx = await prisma.royaltyTransaction.findFirst({
+  // 1️⃣ Atomic upsert: ensures idempotency
+  const existingTx = await prisma.royaltyTransaction.findFirst({
     where: { shop, orderId, productId, designerId },
   });
 
   if (existingTx) {
-    // ♻️ Only update DB, skip Shopify API to prevent duplicate charges
-    const updatedTx = await prisma.royaltyTransaction.update({
+    // ♻️ Already exists → update DB only, skip Shopify API
+    return prisma.royaltyTransaction.update({
       where: { id: existingTx.id },
       data: {
         description,
@@ -82,14 +65,9 @@ export async function createRoyaltyTransactionForOrder({
         updatedAt: new Date(),
       },
     });
-
-    console.log(
-      `♻️ Updated existing RoyaltyTransaction [txId=${updatedTx.id}, orderId=${orderId}]`
-    );
-    return updatedTx;
   }
 
-  // 2️⃣ Transaction not found → create Shopify usage charge
+  // 2️⃣ Not found → create Shopify usage charge
   const subscriptionRecord = await getActiveRoyaltySubscriptionByShop(shop);
   const chargeId = subscriptionRecord.chargeId!;
   const sessions = (await findSessionsByShop(shop)) as SessionType[] | SessionType | null;
@@ -116,15 +94,14 @@ export async function createRoyaltyTransactionForOrder({
 
   const usageChargeData = data.usage_charge;
 
-  // 3️⃣ Double-check DB (race condition)
-  existingTx = await prisma.royaltyTransaction.findFirst({
+  // 3️⃣ Double-check DB to prevent race conditions
+  const txCheck = await prisma.royaltyTransaction.findFirst({
     where: { shop, orderId, productId, designerId },
   });
 
-  if (existingTx) {
-    // Someone else already inserted it → update DB
+  if (txCheck) {
     return prisma.royaltyTransaction.update({
-      where: { id: existingTx.id },
+      where: { id: txCheck.id },
       data: {
         shopifyTransactionChargeId: usageChargeData.id.toString(),
         description: usageChargeData.description,
