@@ -48,22 +48,35 @@ export async function createRoyaltyTransactionForOrder({
   royaltypercentage,
   designerId,
 }: CreateRoyaltyTxParams) {
-  // 1️⃣ Check if transaction already exists
-  const existingTx = await prisma.royaltyTransaction.findFirst({
-    where: { shop, orderId, productId, designerId },
+  // Prisma will ensure atomicity here
+  const existingTx = await prisma.royaltyTransaction.findUnique({
+    where: {
+      shop_orderId_productId_designerId: {
+        shop,
+        orderId,
+        productId,
+        designerId,
+      },
+    },
   });
 
   if (existingTx) {
-    // ♻️ Already exists → skip creating/updating
-    console.log(`⚠️ Transaction already exists for order ${orderId}, skipping.`);
-    return existingTx; // just return the existing record
+    console.log(
+      `⚠️ Transaction already exists for order ${orderId}, skipping Shopify charge.`,
+    );
+    return existingTx;
   }
 
   // 2️⃣ Not found → create Shopify usage charge
   const subscriptionRecord = await getActiveRoyaltySubscriptionByShop(shop);
   const chargeId = subscriptionRecord.chargeId!;
-  const sessions = (await findSessionsByShop(shop)) as SessionType[] | SessionType | null;
-  const token = Array.isArray(sessions) ? sessions[0]?.accessToken : sessions?.accessToken;
+  const sessions = (await findSessionsByShop(shop)) as
+    | SessionType[]
+    | SessionType
+    | null;
+  const token = Array.isArray(sessions)
+    ? sessions[0]?.accessToken
+    : sessions?.accessToken;
 
   if (!token) throw new Error(`No access token found for shop: ${shop}`);
 
@@ -76,7 +89,7 @@ export async function createRoyaltyTransactionForOrder({
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ usage_charge: { description, price } }),
-    }
+    },
   );
 
   const data = await resp.json();
@@ -86,9 +99,19 @@ export async function createRoyaltyTransactionForOrder({
 
   const usageChargeData = data.usage_charge;
 
-  // 3️⃣ Safe to insert new transaction
-  const royaltyTransaction = await prisma.royaltyTransaction.create({
-    data: {
+  // 3️⃣ Atomic insert using upsert
+  // prevent duplicate DB records
+  const royaltyTransaction = await prisma.royaltyTransaction.upsert({
+    where: {
+      shop_orderId_productId_designerId: {
+        shop,
+        orderId,
+        productId,
+        designerId,
+      },
+    },
+    update: {},
+    create: {
       shop,
       shopifyTransactionChargeId: usageChargeData.id.toString(),
       orderId,
@@ -105,7 +128,7 @@ export async function createRoyaltyTransactionForOrder({
   });
 
   console.log(
-    `✅ RoyaltyTransaction created [txId=${royaltyTransaction.id}, orderId=${orderId}, price=${royaltyTransaction.price}]`
+    `✅ RoyaltyTransaction created [txId=${royaltyTransaction.id}, orderId=${orderId}, price=${royaltyTransaction.price}]`,
   );
 
   return royaltyTransaction;
