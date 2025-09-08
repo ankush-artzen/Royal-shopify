@@ -3,6 +3,9 @@ import { findSessionsByShop } from "@/lib/db/session-storage";
 
 const API_VERSION = "2025-07";
 
+// Track seen transactions in memory (per server instance)
+const seenTransactions = new Set<string>();
+
 type CreateRoyaltyTxParams = {
   shop: string;
   orderId: string;
@@ -24,7 +27,11 @@ type SessionType = {
   expires?: string | undefined;
 };
 
-// ✅ Get active subscription for shop
+// Helper: generate unique key
+function makeTxKey(shop: string, orderId: string, productId: string, designerId: string) {
+  return `${shop}|${orderId}|${productId}|${designerId}`;
+}
+
 async function getActiveRoyaltySubscriptionByShop(shop: string) {
   const normalizedShop = shop.toLowerCase();
 
@@ -35,6 +42,7 @@ async function getActiveRoyaltySubscriptionByShop(shop: string) {
   if (!record) {
     throw new Error(`No active royalty subscription found for shop: ${shop}`);
   }
+
   return record;
 }
 
@@ -48,14 +56,23 @@ export async function createRoyaltyTransactionForOrder({
   royaltypercentage,
   designerId,
 }: CreateRoyaltyTxParams) {
-  // 1️⃣ Pre-check for existing transaction
+  const txKey = makeTxKey(shop, orderId, productId, designerId);
+
+  // 0️⃣ Skip if already processed in this execution
+  if (seenTransactions.has(txKey)) {
+    console.log(`⚠️ Skipping duplicate transaction (in-memory) [${txKey}]`);
+    return null;
+  }
+  seenTransactions.add(txKey);
+
+  // 1️⃣ Check DB for existing transaction
   let existingTx = await prisma.royaltyTransaction.findFirst({
     where: { shop, orderId, productId, designerId },
   });
 
   if (existingTx) {
-    // Update existing instead of duplicate
-    return prisma.royaltyTransaction.update({
+    // ♻️ Only update DB, skip Shopify API to prevent duplicate charges
+    const updatedTx = await prisma.royaltyTransaction.update({
       where: { id: existingTx.id },
       data: {
         description,
@@ -65,9 +82,14 @@ export async function createRoyaltyTransactionForOrder({
         updatedAt: new Date(),
       },
     });
+
+    console.log(
+      `♻️ Updated existing RoyaltyTransaction [txId=${updatedTx.id}, orderId=${orderId}]`
+    );
+    return updatedTx;
   }
 
-  // 2️⃣ Fetch Shopify usage charge
+  // 2️⃣ Transaction not found → create Shopify usage charge
   const subscriptionRecord = await getActiveRoyaltySubscriptionByShop(shop);
   const chargeId = subscriptionRecord.chargeId!;
   const sessions = (await findSessionsByShop(shop)) as SessionType[] | SessionType | null;
@@ -94,12 +116,13 @@ export async function createRoyaltyTransactionForOrder({
 
   const usageChargeData = data.usage_charge;
 
-  // 3️⃣ Post-check again (handles race condition)
+  // 3️⃣ Double-check DB (race condition)
   existingTx = await prisma.royaltyTransaction.findFirst({
     where: { shop, orderId, productId, designerId },
   });
 
   if (existingTx) {
+    // Someone else already inserted it → update DB
     return prisma.royaltyTransaction.update({
       where: { id: existingTx.id },
       data: {
@@ -115,31 +138,27 @@ export async function createRoyaltyTransactionForOrder({
     });
   }
 
-  // 4️⃣ Safe insert (DB constraint ensures no dupes)
-  try {
-    return await prisma.royaltyTransaction.create({
-      data: {
-        shop,
-        shopifyTransactionChargeId: usageChargeData.id.toString(),
-        orderId,
-        productId,
-        description: usageChargeData.description,
-        price: parseFloat(usageChargeData.price),
-        currency,
-        balanceUsed: parseFloat(usageChargeData.balance_used ?? "0"),
-        balanceRemaining: parseFloat(usageChargeData.balance_remaining ?? "0"),
-        royaltypercentage,
-        designerId,
-        createdAt: new Date(usageChargeData.created_at),
-      },
-    });
-  } catch (err: any) {
-    if (err.code === "P2002") {
-      return prisma.royaltyTransaction.findFirst({
-        where: { shop, orderId, productId, designerId },
-      });
-    }
-    throw err;
-  }
-}
+  // 4️⃣ Safe to insert new transaction
+  const royaltyTransaction = await prisma.royaltyTransaction.create({
+    data: {
+      shop,
+      shopifyTransactionChargeId: usageChargeData.id.toString(),
+      orderId,
+      productId,
+      description: usageChargeData.description,
+      price: parseFloat(usageChargeData.price),
+      currency,
+      balanceUsed: parseFloat(usageChargeData.balance_used ?? "0"),
+      balanceRemaining: parseFloat(usageChargeData.balance_remaining ?? "0"),
+      royaltypercentage,
+      designerId,
+      createdAt: new Date(usageChargeData.created_at),
+    },
+  });
 
+  console.log(
+    `✅ RoyaltyTransaction created [txId=${royaltyTransaction.id}, orderId=${orderId}, price=${royaltyTransaction.price}]`
+  );
+
+  return royaltyTransaction;
+}
