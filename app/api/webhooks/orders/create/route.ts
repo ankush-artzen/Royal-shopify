@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
       console.warn("⚠️ Missing shop header in request");
       return NextResponse.json(
         { success: false, message: "Missing shop header" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
       console.warn("⚠️ Invalid order data:", body);
       return NextResponse.json(
         { success: false, message: "Invalid order data" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
     });
     if (existingOrder) {
       console.log(
-        `⚠️ Order ${orderId} for shop ${shop} has already been processed → Skipping webhook`
+        `⚠️ Order ${orderId} for shop ${shop} has already been processed → Skipping webhook`,
       );
       return NextResponse.json({
         success: true,
@@ -47,93 +47,144 @@ export async function POST(req: NextRequest) {
     const lineItemsToAdd: any[] = [];
     console.log(`Processing ${body.line_items.length} line items...`);
 
-    // Use transaction to ensure atomic operations
-    const result = await prisma.$transaction(async (tx) => {
-      for (const item of body.line_items) {
-        const productIdNumeric = item.product_id?.toString();
-        if (!productIdNumeric) continue;
+    // Extract all product IDs for batch query
+    const productIds = body.line_items
+      .map((item: any) => item.product_id?.toString())
+      .filter(Boolean);
 
-        const productIdGid = `gid://shopify/Product/${productIdNumeric}`;
+    if (productIds.length === 0) {
+      console.log("⚠️ No valid product IDs found in line items");
+      return NextResponse.json({
+        success: false,
+        message: "No royalty products in this order",
+      });
+    }
 
-        const royalties = await tx.productRoyalty.findMany({
+    // Create both numeric and GID versions for query
+    const productIdGids = productIds.map(
+      (id: string) => `gid://shopify/Product/${id}`,
+    );
+
+    // Use transaction with increased timeout
+    const result = await prisma.$transaction(
+      async (tx) => {
+        // Pre-fetch all royalties in a single query
+        const allRoyalties = await tx.productRoyalty.findMany({
           where: {
             shop,
-            OR: [{ shopifyId: productIdNumeric }, { shopifyId: productIdGid }],
+            OR: [
+              { shopifyId: { in: productIds } },
+              { shopifyId: { in: productIdGids } },
+            ],
           },
         });
 
-        if (!royalties.length) continue;
+        // Create a map for faster lookup
+        const royaltiesMap = new Map();
+        allRoyalties.forEach((royalty) => {
+          // Extract numeric ID from both formats
+          const numericId = royalty.shopifyId.includes("gid://")
+            ? royalty.shopifyId.replace("gid://shopify/Product/", "")
+            : royalty.shopifyId;
 
-        const quantity = item.quantity;
-        const unitPrice = parseFloat(item.price);
-        const lineTotal = unitPrice * quantity;
+          if (!royaltiesMap.has(numericId)) {
+            royaltiesMap.set(numericId, []);
+          }
+          royaltiesMap.get(numericId).push(royalty);
+        });
 
-        for (const royalty of royalties) {
-          const productRoyalityCalculatedAmount =
-            (lineTotal * royalty.Royality) / 100;
+        const royaltyUpdates: Array<{
+          id: string;
+          quantity: number;
+          amount: number;
+        }> = [];
 
-          lineItemsToAdd.push({
-            productId: royalty.productId,
-            title: item.title,
-            variantId: item.variant_id?.toString() || "",
-            variantTitle: item.variant_title || "",
-            designerId: royalty.designerId,
-            productRoyalityCalculatedAmount,
-            quantity,
-            unitPrice,
-            royaltypercentage: royalty.Royality,
-          });
+        // Process line items using the pre-fetched data
+        for (const item of body.line_items) {
+          const productIdNumeric = item.product_id?.toString();
+          if (!productIdNumeric) continue;
 
-          const currentTotalSold = royalty.totalSold ?? 0;
-          const currentTotalRoyaltyEarned = royalty.totalRoyaltyEarned ?? 0;
+          const royalties = royaltiesMap.get(productIdNumeric) || [];
+          if (!royalties.length) continue;
 
-          await tx.productRoyalty.update({
-            where: { id: royalty.id },
-            data: {
-              totalSold: { set: currentTotalSold + quantity },
-              totalRoyaltyEarned: {
-                set: currentTotalRoyaltyEarned + productRoyalityCalculatedAmount,
-              },
-            },
-          });
+          const quantity = item.quantity;
+          const unitPrice = parseFloat(item.price);
+          const lineTotal = unitPrice * quantity;
+
+          for (const royalty of royalties) {
+            const productRoyalityCalculatedAmount =
+              (lineTotal * royalty.Royality) / 100;
+
+            lineItemsToAdd.push({
+              productId: royalty.productId,
+              title: item.title,
+              variantId: item.variant_id?.toString() || "",
+              variantTitle: item.variant_title || "",
+              designerId: royalty.designerId,
+              productRoyalityCalculatedAmount,
+              quantity,
+              unitPrice,
+              royaltypercentage: royalty.Royality,
+            });
+
+            royaltyUpdates.push({
+              id: royalty.id,
+              quantity,
+              amount: productRoyalityCalculatedAmount,
+            });
+          }
         }
-      }
 
-      if (lineItemsToAdd.length === 0) {
-        console.log("⚠️ No royalty products in this order");
-        return null;
-      }
+        if (lineItemsToAdd.length === 0) {
+          console.log("⚠️ No royalty products in this order");
+          return null;
+        }
 
-      const calculatedRoyaltyAmount = lineItemsToAdd.reduce(
-        (sum, li) => sum + li.productRoyalityCalculatedAmount,
-        0
-      );
+        // Batch update product royalties
+        const updatePromises = royaltyUpdates.map((update) =>
+          tx.productRoyalty.update({
+            where: { id: update.id },
+            data: {
+              totalSold: { increment: update.quantity },
+              totalRoyaltyEarned: { increment: update.amount },
+            },
+          }),
+        );
+        await Promise.all(updatePromises);
 
-      // ✅ Upsert RoyaltyOrder
-      const royaltyOrder = await tx.royaltyOrder.upsert({
-        where: {
-          shop_orderId: { shop, orderId }, // composite unique key
-        },
-        update: {
-          orderName,
-          currency,
-          lineItem: lineItemsToAdd,
-          calculatedroyaltyamount: calculatedRoyaltyAmount,
-          updatedAt: new Date(),
-        },
-        create: {
-          shop,
-          orderId,
-          orderName,
-          currency,
-          lineItem: lineItemsToAdd,
-          calculatedroyaltyamount: calculatedRoyaltyAmount,
-          createdAt,
-        },
-      });
+        const calculatedRoyaltyAmount = lineItemsToAdd.reduce(
+          (sum, li) => sum + li.productRoyalityCalculatedAmount,
+          0,
+        );
 
-      return royaltyOrder;
-    });
+        // ✅ Create RoyaltyOrder
+        const royaltyOrder = await tx.royaltyOrder.upsert({
+          where: { shop_orderId: { shop, orderId } },
+          update: {
+            orderName,
+            currency,
+            lineItem: lineItemsToAdd,
+            calculatedroyaltyamount: calculatedRoyaltyAmount,
+            updatedAt: new Date(),
+          },
+          create: {
+            shop,
+            orderId,
+            orderName,
+            currency,
+            lineItem: lineItemsToAdd,
+            calculatedroyaltyamount: calculatedRoyaltyAmount,
+            createdAt,
+          },
+        });
+
+        return royaltyOrder;
+      },
+      {
+        timeout: 15000, // 15 seconds timeout
+        maxWait: 15000, // maximum wait time
+      },
+    );
 
     if (!result) {
       return NextResponse.json({
@@ -142,8 +193,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 💡 Create royalty transactions
-    for (const li of lineItemsToAdd) {
+    // Process royalty transactions outside the main transaction
+    // This ensures the main transaction completes quickly
+    const transactionPromises = lineItemsToAdd.map(async (li) => {
       try {
         await createRoyaltyTransactionForOrder({
           shop,
@@ -161,25 +213,48 @@ export async function POST(req: NextRequest) {
           error.message.includes("Transaction already exists")
         ) {
           console.log(
-            `⚠️ Transaction already exists for ${li.title} → Skipping`
+            `⚠️ Transaction already exists for ${li.title} → Skipping`,
           );
-          continue;
+          return null;
         }
         console.error(`❌ Error creating transaction for ${li.title}:`, error);
+        throw error; // Re-throw to catch in Promise.allSettled
       }
+    });
+
+    // Use allSettled to handle individual transaction failures gracefully
+    const transactionResults = await Promise.allSettled(transactionPromises);
+
+    // Check for any failures that weren't handled
+    const failedTransactions = transactionResults.filter(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+
+    if (failedTransactions.length > 0) {
+      console.warn(
+        `⚠️ ${failedTransactions.length} royalty transactions failed, but order was processed successfully`,
+      );
     }
 
-    console.log("✅ All royalty transactions processed successfully");
+    console.log("✅ Order processed successfully with royalty transactions");
 
     return NextResponse.json({
       success: true,
       royaltyOrder: result,
+      warning:
+        failedTransactions.length > 0
+          ? `${failedTransactions.length} royalty transactions failed`
+          : undefined,
     });
   } catch (error: any) {
     console.error("❌ Error processing order webhook:", error);
     return NextResponse.json(
-      { error: error.message || "Internal Server Error" },
-      { status: 500 }
+      {
+        success: false,
+        error: error.message || "Internal Server Error",
+        message: "Failed to process order webhook",
+      },
+      { status: 500 },
     );
   }
 }
