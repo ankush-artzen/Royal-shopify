@@ -11,15 +11,11 @@ export async function POST(req: NextRequest) {
       console.warn("⚠️ Missing shop header in request");
       return NextResponse.json(
         { success: false, message: "Missing shop header" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    console.log("Shop:", shop);
-
     const body = await req.json();
-    console.log("Order payload received:", JSON.stringify(body, null, 2));
-
     const orderId = body.id?.toString();
     const orderName = body.name;
     const createdAt = new Date(body.created_at);
@@ -29,8 +25,23 @@ export async function POST(req: NextRequest) {
       console.warn("⚠️ Invalid order data:", body);
       return NextResponse.json(
         { success: false, message: "Invalid order data" },
-        { status: 400 }
+        { status: 400 },
       );
+    }
+
+    // ✅ Check if this order is already processed
+    const existingOrder = await prisma.royaltyOrder.findUnique({
+      where: { shop_orderId: { shop, orderId } },
+    });
+    if (existingOrder) {
+      console.log(
+        `⚠️ Order ${orderId} for shop ${shop} has already been processed → Skipping webhook`,
+      );
+      return NextResponse.json({
+        success: true,
+        message: "Order already processed",
+        royaltyOrder: existingOrder,
+      });
     }
 
     const lineItemsToAdd: any[] = [];
@@ -50,11 +61,6 @@ export async function POST(req: NextRequest) {
             OR: [{ shopifyId: productIdNumeric }, { shopifyId: productIdGid }],
           },
         });
-
-        console.log(
-          `Product ${item.title} (${productIdNumeric}) royalties found:`,
-          royalties.length
-        );
 
         if (!royalties.length) continue;
 
@@ -78,34 +84,18 @@ export async function POST(req: NextRequest) {
             royaltypercentage: royalty.Royality,
           });
 
-          console.log(
-            "productRoyalityCalculatedAmount:",
-            productRoyalityCalculatedAmount,
-            "quantity:",
-            quantity
-          );
-
           const currentTotalSold = royalty.totalSold ?? 0;
           const currentTotalRoyaltyEarned = royalty.totalRoyaltyEarned ?? 0;
 
           await tx.productRoyalty.update({
             where: { id: royalty.id },
             data: {
-              totalSold: { set: currentTotalSold + quantity },
+              totalSold: { increment: quantity },
               totalRoyaltyEarned: {
-                set:
-                  currentTotalRoyaltyEarned + productRoyalityCalculatedAmount,
+                increment: productRoyalityCalculatedAmount,
               },
             },
           });
-
-          console.log(
-            `→ Updated ProductRoyalty: ${item.title}, totalSold: ${
-              currentTotalSold + quantity
-            }, totalRoyaltyEarned: ${(
-              currentTotalRoyaltyEarned + productRoyalityCalculatedAmount
-            ).toFixed(2)}`
-          );
         }
       }
 
@@ -116,10 +106,10 @@ export async function POST(req: NextRequest) {
 
       const calculatedRoyaltyAmount = lineItemsToAdd.reduce(
         (sum, li) => sum + li.productRoyalityCalculatedAmount,
-        0
+        0,
       );
 
-      // ✅ Use upsert to avoid duplicates
+      // ✅ Upsert RoyaltyOrder
       const royaltyOrder = await tx.royaltyOrder.upsert({
         where: {
           shop_orderId: { shop, orderId }, // composite unique key
@@ -142,12 +132,6 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      console.log(
-        royaltyOrder.createdAt.getTime() === createdAt.getTime()
-          ? "✅ New RoyaltyOrder created"
-          : "⚠️ Duplicate RoyaltyOrder found → updated"
-      );
-
       return royaltyOrder;
     });
 
@@ -158,12 +142,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 💡 Create royalty transactions - helper should also use upsert
+    // 💡 Create royalty transactions
     for (const li of lineItemsToAdd) {
       try {
-        console.log(
-          `Creating/Checking RoyaltyTransaction for ${li.title} - Amount: ${li.productRoyalityCalculatedAmount}`
-        );
         await createRoyaltyTransactionForOrder({
           shop,
           orderId,
@@ -180,7 +161,7 @@ export async function POST(req: NextRequest) {
           error.message.includes("Transaction already exists")
         ) {
           console.log(
-            `⚠️ Transaction already exists for ${li.title} → Skipping`
+            `⚠️ Transaction already exists for ${li.title} → Skipping`,
           );
           continue;
         }
@@ -198,7 +179,7 @@ export async function POST(req: NextRequest) {
     console.error("❌ Error processing order webhook:", error);
     return NextResponse.json(
       { error: error.message || "Internal Server Error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
