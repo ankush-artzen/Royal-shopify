@@ -101,6 +101,8 @@ model RoyaltyOrder{
   currency  String?
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
+
+  @@unique([shop, orderId])
 }
 
 type LineItem {
@@ -146,4 +148,3 @@ model RoyaltyTransaction {
 
   @@unique([shop, orderId, productId, designerId])
 }
-
