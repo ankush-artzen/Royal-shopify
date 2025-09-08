@@ -7,12 +7,11 @@ export async function POST(req: NextRequest) {
     console.log("✅ Orders webhook hit at", new Date().toISOString());
 
     const shop = req.headers.get("x-shopify-shop-domain");
-
     if (!shop) {
       console.warn("⚠️ Missing shop header in request");
       return NextResponse.json(
         { success: false, message: "Missing shop header" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -30,7 +29,7 @@ export async function POST(req: NextRequest) {
       console.warn("⚠️ Invalid order data:", body);
       return NextResponse.json(
         { success: false, message: "Invalid order data" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -54,7 +53,7 @@ export async function POST(req: NextRequest) {
 
         console.log(
           `Product ${item.title} (${productIdNumeric}) royalties found:`,
-          royalties.length,
+          royalties.length
         );
 
         if (!royalties.length) continue;
@@ -83,7 +82,7 @@ export async function POST(req: NextRequest) {
             "productRoyalityCalculatedAmount:",
             productRoyalityCalculatedAmount,
             "quantity:",
-            quantity,
+            quantity
           );
 
           const currentTotalSold = royalty.totalSold ?? 0;
@@ -94,13 +93,18 @@ export async function POST(req: NextRequest) {
             data: {
               totalSold: { set: currentTotalSold + quantity },
               totalRoyaltyEarned: {
-                set: currentTotalRoyaltyEarned + productRoyalityCalculatedAmount,
+                set:
+                  currentTotalRoyaltyEarned + productRoyalityCalculatedAmount,
               },
             },
           });
 
           console.log(
-            `→ Updated ProductRoyalty: ${item.title}, totalSold: ${currentTotalSold + quantity}, totalRoyaltyEarned: ${(currentTotalRoyaltyEarned + productRoyalityCalculatedAmount).toFixed(2)}`,
+            `→ Updated ProductRoyalty: ${item.title}, totalSold: ${
+              currentTotalSold + quantity
+            }, totalRoyaltyEarned: ${(
+              currentTotalRoyaltyEarned + productRoyalityCalculatedAmount
+            ).toFixed(2)}`
           );
         }
       }
@@ -110,45 +114,39 @@ export async function POST(req: NextRequest) {
         return null;
       }
 
-      // 🔄 Check for existing RoyaltyOrder
-      let royaltyOrder = await tx.royaltyOrder.findFirst({
-        where: { shop, orderId },
-      });
-
       const calculatedRoyaltyAmount = lineItemsToAdd.reduce(
         (sum, li) => sum + li.productRoyalityCalculatedAmount,
-        0,
+        0
       );
 
-      if (royaltyOrder) {
-        console.log(
-          `⚠️ Duplicate order found → Updating order (orderId: ${orderId})`,
-        );
+      // ✅ Use upsert to avoid duplicates
+      const royaltyOrder = await tx.royaltyOrder.upsert({
+        where: {
+          shop_orderId: { shop, orderId }, // composite unique key
+        },
+        update: {
+          orderName,
+          currency,
+          lineItem: lineItemsToAdd,
+          calculatedroyaltyamount: calculatedRoyaltyAmount,
+          updatedAt: new Date(),
+        },
+        create: {
+          shop,
+          orderId,
+          orderName,
+          currency,
+          lineItem: lineItemsToAdd,
+          calculatedroyaltyamount: calculatedRoyaltyAmount,
+          createdAt,
+        },
+      });
 
-        royaltyOrder = await tx.royaltyOrder.update({
-          where: { id: royaltyOrder.id },
-          data: {
-            orderName,
-            currency,
-            lineItem: lineItemsToAdd,
-            updatedAt: new Date(),
-            calculatedroyaltyamount: calculatedRoyaltyAmount,
-          },
-        });
-      } else {
-        royaltyOrder = await tx.royaltyOrder.create({
-          data: {
-            shop,
-            orderId,
-            orderName,
-            currency,
-            lineItem: lineItemsToAdd,
-            createdAt,
-            calculatedroyaltyamount: calculatedRoyaltyAmount,
-          },
-        });
-        console.log("✅ New RoyaltyOrder created:", royaltyOrder.id);
-      }
+      console.log(
+        royaltyOrder.createdAt.getTime() === createdAt.getTime()
+          ? "✅ New RoyaltyOrder created"
+          : "⚠️ Duplicate RoyaltyOrder found → updated"
+      );
 
       return royaltyOrder;
     });
@@ -160,11 +158,11 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 💡 Create royalty transactions - let createRoyaltyTransactionForOrder handle duplicates
+    // 💡 Create royalty transactions - helper should also use upsert
     for (const li of lineItemsToAdd) {
       try {
         console.log(
-          `Creating/Checking RoyaltyTransaction for ${li.title} - Amount: ${li.productRoyalityCalculatedAmount}`,
+          `Creating/Checking RoyaltyTransaction for ${li.title} - Amount: ${li.productRoyalityCalculatedAmount}`
         );
         await createRoyaltyTransactionForOrder({
           shop,
@@ -177,12 +175,16 @@ export async function POST(req: NextRequest) {
           designerId: li.designerId,
         });
       } catch (error: any) {
-        if (error.message.includes("already exists") || error.message.includes("Transaction already exists")) {
-          console.log(`⚠️ Transaction already exists for ${li.title} → Skipping`);
+        if (
+          error.message.includes("already exists") ||
+          error.message.includes("Transaction already exists")
+        ) {
+          console.log(
+            `⚠️ Transaction already exists for ${li.title} → Skipping`
+          );
           continue;
         }
         console.error(`❌ Error creating transaction for ${li.title}:`, error);
-        // Don't throw here to continue processing other items
       }
     }
 
@@ -196,7 +198,7 @@ export async function POST(req: NextRequest) {
     console.error("❌ Error processing order webhook:", error);
     return NextResponse.json(
       { error: error.message || "Internal Server Error" },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }

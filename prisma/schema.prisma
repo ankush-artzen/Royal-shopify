@@ -102,7 +102,7 @@ model RoyaltyOrder{
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
-  @@unique([shop, orderId])
+@@unique([shop, orderId], name: "shop_orderId")
 }
 
 type LineItem {
