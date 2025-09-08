@@ -171,7 +171,7 @@ export async function POST(req: NextRequest) {
     const uniqueLineItems = Array.from(uniqueLineItemsMap.values());
 
     // 💡 Upsert RoyaltyTransactions
-    for (const li of uniqueLineItems) {
+    for (const li of lineItemsToAdd) {
       const existingTx = await prisma.royaltyTransaction.findFirst({
         where: {
           shop,
@@ -183,56 +183,27 @@ export async function POST(req: NextRequest) {
 
       if (existingTx) {
         console.log(
-          `⚠️ Duplicate transaction found for ${li.title} → Updating`,
+          `⚠️ Duplicate transaction found for ${li.title} → Skipping`,
         );
-
-        await prisma.royaltyTransaction.update({
-          where: { id: existingTx.id },
-          data: {
-            price: li.productRoyalityCalculatedAmount,
-            royaltypercentage: li.royaltypercentage,
-            description: `created royalty payment for order ${orderName} - ${li.title}`,
-            updatedAt: new Date(),
-          },
-        });
-      } else {
-        console.log(
-          `Creating new RoyaltyTransaction for ${li.title} - Amount: ${li.productRoyalityCalculatedAmount}`,
-        );
-
-        await prisma.royaltyTransaction.create({
-          data: {
-            shop,
-            orderId,
-            productId: li.productId,
-            designerId: li.designerId,
-            price: li.productRoyalityCalculatedAmount,
-            currency,
-            royaltypercentage: li.royaltypercentage,
-            description: `Royalty payment for order ${orderName} - ${li.title}`,
-            balanceUsed: 0,
-            balanceRemaining: 0,
-            shopifyTransactionChargeId: "",
-            createdAt: new Date(),
-          },
-        });
-
-        // Call Shopify API for new transactions
-        await createRoyaltyTransactionForOrder({
-          shop,
-          orderId,
-          productId: li.productId,
-          description: `Royalty payment for order ${orderName} - ${li.title}`,
-          price: li.productRoyalityCalculatedAmount,
-          currency,
-          royaltypercentage: li.royaltypercentage,
-          designerId: li.designerId,
-        });
+        continue; // Skip this transaction
       }
+
+      console.log(
+        `Creating new RoyaltyTransaction for ${li.title} - Amount: ${li.productRoyalityCalculatedAmount}`,
+      );
+      await createRoyaltyTransactionForOrder({
+        shop,
+        orderId,
+        productId: li.productId,
+        description: `Royalty payment for order ${orderName} - ${li.title}`,
+        price: li.productRoyalityCalculatedAmount,
+        currency,
+        royaltypercentage: li.royaltypercentage,
+        designerId: li.designerId,
+      });
     }
 
     console.log("✅ All royalty transactions processed successfully");
-
 
     return NextResponse.json({
       success: true,
