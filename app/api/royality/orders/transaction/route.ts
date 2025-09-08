@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
 
     const shop = searchParams.get("shop");
     const page = Math.max(parseInt(searchParams.get("page") || "1", 10), 1);
-    const limit = Math.min(Math.max(parseInt(searchParams.get("limit") || "10", 10), 1), 100); 
+    const limit = Math.min(Math.max(parseInt(searchParams.get("limit") || "10", 10), 1), 100);
 
     // Date filtering
     const endDate = searchParams.get("endDate") ? new Date(searchParams.get("endDate")!) : new Date();
@@ -15,12 +15,9 @@ export async function GET(req: NextRequest) {
       ? new Date(searchParams.get("startDate")!)
       : new Date(new Date().setDate(endDate.getDate() - 30)); // default last 30 days
 
-    // Build Prisma where filter
+    // Prisma filter
     const where: any = {
-      createdAt: {
-        gte: startDate,
-        lte: endDate,
-      },
+      createdAt: { gte: startDate, lte: endDate },
     };
     if (shop) where.shop = shop;
 
@@ -29,21 +26,21 @@ export async function GET(req: NextRequest) {
     // Count total transactions for pagination
     const totalCount = await prisma.royaltyTransaction.count({ where });
 
-    // Fetch paginated transactions, latest first
+    // Fetch paginated transactions **latest createdAt first**
     const transactions = await prisma.royaltyTransaction.findMany({
       where,
-      orderBy: { createdAt: "desc" },
+      orderBy: { createdAt: "desc" }, // latest first
       skip: (page - 1) * limit,
       take: limit,
     });
 
     console.log(`✅ Fetched ${transactions.length} transactions (page ${page})`);
 
-    // Sanitize null values safely
+    // Sanitize and format
     const sanitizedTransactions = transactions.map((tx) => ({
       id: tx.id,
       shop: tx.shop,
-      shopifyTransactionChargeId: tx.shopifyTransactionChargeId || "N/A", // ✅ Include this
+      shopifyTransactionChargeId: tx.shopifyTransactionChargeId || "N/A",
       orderId: tx.orderId,
       productId: tx.productId || "N/A",
       description: tx.description || "",
@@ -54,7 +51,6 @@ export async function GET(req: NextRequest) {
       createdAt: tx.createdAt,
       updatedAt: tx.updatedAt,
     }));
-    
 
     return NextResponse.json({
       success: true,
