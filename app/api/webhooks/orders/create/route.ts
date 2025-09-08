@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
       console.warn("⚠️ Missing shop header in request");
       return NextResponse.json(
         { success: false, message: "Missing shop header" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
       console.warn("⚠️ Invalid order data:", body);
       return NextResponse.json(
         { success: false, message: "Invalid order data" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
 
       console.log(
         `Product ${item.title} (${productIdNumeric}) royalties found:`,
-        royalties.length
+        royalties.length,
       );
 
       if (!royalties.length) continue;
@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
           "productRoyalityCalculatedAmount:",
           productRoyalityCalculatedAmount,
           "quantity:",
-          quantity
+          quantity,
         );
 
         const currentTotalSold = royalty.totalSold ?? 0;
@@ -99,8 +99,8 @@ export async function POST(req: NextRequest) {
 
         console.log(
           `→ Updated ProductRoyalty: ${item.title}, totalSold: ${updatedRoyalty.totalSold}, totalRoyaltyEarned: ${updatedRoyalty.totalRoyaltyEarned.toFixed(
-            2
-          )}`
+            2,
+          )}`,
         );
       }
     }
@@ -119,7 +119,9 @@ export async function POST(req: NextRequest) {
     });
 
     if (royaltyOrder) {
-      console.log(`⚠️ Duplicate order found → Updating order (orderId: ${orderId})`);
+      console.log(
+        `⚠️ Duplicate order found → Updating order (orderId: ${orderId})`,
+      );
 
       royaltyOrder = await prisma.royaltyOrder.update({
         where: { id: royaltyOrder.id },
@@ -130,7 +132,7 @@ export async function POST(req: NextRequest) {
           updatedAt: new Date(),
           calculatedroyaltyamount: lineItemsToAdd.reduce(
             (sum, li) => sum + li.productRoyalityCalculatedAmount,
-            0
+            0,
           ),
         },
       });
@@ -145,7 +147,7 @@ export async function POST(req: NextRequest) {
           createdAt,
           calculatedroyaltyamount: lineItemsToAdd.reduce(
             (sum, li) => sum + li.productRoyalityCalculatedAmount,
-            0
+            0,
           ),
         },
       });
@@ -153,7 +155,23 @@ export async function POST(req: NextRequest) {
     }
 
     // 💡 Upsert royalty transactions
+    // 🔄 Deduplicate line items by productId + designerId
+    const uniqueLineItemsMap = new Map<string, any>();
     for (const li of lineItemsToAdd) {
+      const key = `${li.productId}|${li.designerId}`;
+      if (uniqueLineItemsMap.has(key)) {
+        const existing = uniqueLineItemsMap.get(key);
+        existing.quantity += li.quantity;
+        existing.productRoyalityCalculatedAmount +=
+          li.productRoyalityCalculatedAmount;
+      } else {
+        uniqueLineItemsMap.set(key, li);
+      }
+    }
+    const uniqueLineItems = Array.from(uniqueLineItemsMap.values());
+
+    // 💡 Upsert RoyaltyTransactions
+    for (const li of uniqueLineItems) {
       const existingTx = await prisma.royaltyTransaction.findFirst({
         where: {
           shop,
@@ -164,21 +182,42 @@ export async function POST(req: NextRequest) {
       });
 
       if (existingTx) {
-        console.log(`⚠️ Duplicate transaction found for ${li.title} → Updating`);
+        console.log(
+          `⚠️ Duplicate transaction found for ${li.title} → Updating`,
+        );
 
         await prisma.royaltyTransaction.update({
           where: { id: existingTx.id },
           data: {
             price: li.productRoyalityCalculatedAmount,
             royaltypercentage: li.royaltypercentage,
-            description: `Royalty payment for order ${orderName} - ${li.title}`,
+            description: `Updated royalty payment for order ${orderName} - ${li.title}`,
             updatedAt: new Date(),
           },
         });
       } else {
         console.log(
-          `Creating new RoyaltyTransaction for ${li.title} - Amount: ${li.productRoyalityCalculatedAmount}`
+          `Creating new RoyaltyTransaction for ${li.title} - Amount: ${li.productRoyalityCalculatedAmount}`,
         );
+
+        await prisma.royaltyTransaction.create({
+          data: {
+            shop,
+            orderId,
+            productId: li.productId,
+            designerId: li.designerId,
+            price: li.productRoyalityCalculatedAmount,
+            currency,
+            royaltypercentage: li.royaltypercentage,
+            description: `Royalty payment for order ${orderName} - ${li.title}`,
+            balanceUsed: 0,
+            balanceRemaining: 0,
+            shopifyTransactionChargeId: "",
+            createdAt: new Date(),
+          },
+        });
+
+        // Call Shopify API for new transactions
         await createRoyaltyTransactionForOrder({
           shop,
           orderId,
@@ -194,6 +233,7 @@ export async function POST(req: NextRequest) {
 
     console.log("✅ All royalty transactions processed successfully");
 
+
     return NextResponse.json({
       success: true,
       royaltyOrder,
@@ -202,7 +242,7 @@ export async function POST(req: NextRequest) {
     console.error("❌ Error processing order webhook:", error);
     return NextResponse.json(
       { error: error.message || "Internal Server Error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
