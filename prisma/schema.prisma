@@ -129,19 +129,21 @@ model RoyaltySubscription {
 
 
 model RoyaltyTransaction {
-  id                        String   @id @default(auto()) @map("_id") @db.ObjectId
-  shop                      String   
+  id                         String   @id @default(auto()) @map("_id") @db.ObjectId
+  shop                       String   
   shopifyTransactionChargeId String
-  orderId                   String
-  productId                 String?  
-  description               String
-  price                     Float
-  currency                  String
-  balanceUsed               Float
-  balanceRemaining          Float
-  royaltypercentage         Float?     
-  designerId                String?
-  createdAt                 DateTime @default(now())
-  updatedAt                 DateTime @updatedAt
+  orderId                    String
+  productId                  String?  
+  description                String
+  price                      Float
+  currency                   String
+  balanceUsed                Float
+  balanceRemaining           Float
+  royaltypercentage          Float?     
+  designerId                 String?
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  @@unique([shop, orderId, productId, designerId])
 }
 

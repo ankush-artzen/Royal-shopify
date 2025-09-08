@@ -24,6 +24,7 @@ type SessionType = {
   expires?: string | undefined;
 };
 
+// ✅ Get active subscription for shop
 async function getActiveRoyaltySubscriptionByShop(shop: string) {
   const normalizedShop = shop.toLowerCase();
 
@@ -34,7 +35,6 @@ async function getActiveRoyaltySubscriptionByShop(shop: string) {
   if (!record) {
     throw new Error(`No active royalty subscription found for shop: ${shop}`);
   }
-
   return record;
 }
 
@@ -48,14 +48,14 @@ export async function createRoyaltyTransactionForOrder({
   royaltypercentage,
   designerId,
 }: CreateRoyaltyTxParams) {
-  // 1️⃣ Check DB for existing transaction first
+  // 1️⃣ Pre-check for existing transaction
   let existingTx = await prisma.royaltyTransaction.findFirst({
     where: { shop, orderId, productId, designerId },
   });
 
   if (existingTx) {
-    // ✅ Already exists → just update local record, skip Shopify API
-    const updatedTx = await prisma.royaltyTransaction.update({
+    // Update existing instead of duplicate
+    return prisma.royaltyTransaction.update({
       where: { id: existingTx.id },
       data: {
         description,
@@ -65,26 +65,9 @@ export async function createRoyaltyTransactionForOrder({
         updatedAt: new Date(),
       },
     });
-
-    console.log(
-      `♻️ Updated existing RoyaltyTransaction [txId=${updatedTx.id}, orderId=${orderId}]`
-    );
-    return updatedTx;
   }
 
-  // 2️⃣ No local record → double-check again right before creating charge
-  existingTx = await prisma.royaltyTransaction.findFirst({
-    where: { shop, orderId, productId, designerId },
-  });
-
-  if (existingTx) {
-    console.log(
-      `⚠️ Race condition avoided, transaction already created [orderId=${orderId}]`
-    );
-    return existingTx;
-  }
-
-  // 3️⃣ Safe: call Shopify API once
+  // 2️⃣ Fetch Shopify usage charge
   const subscriptionRecord = await getActiveRoyaltySubscriptionByShop(shop);
   const chargeId = subscriptionRecord.chargeId!;
   const sessions = (await findSessionsByShop(shop)) as SessionType[] | SessionType | null;
@@ -111,15 +94,12 @@ export async function createRoyaltyTransactionForOrder({
 
   const usageChargeData = data.usage_charge;
 
-  // 4️⃣ Final double-check (avoid retry race conditions)
+  // 3️⃣ Post-check again (handles race condition)
   existingTx = await prisma.royaltyTransaction.findFirst({
     where: { shop, orderId, productId, designerId },
   });
 
   if (existingTx) {
-    console.log(
-      `⚠️ Duplicate avoided: Transaction already exists after charge [orderId=${orderId}]`
-    );
     return prisma.royaltyTransaction.update({
       where: { id: existingTx.id },
       data: {
@@ -135,27 +115,31 @@ export async function createRoyaltyTransactionForOrder({
     });
   }
 
-  // 5️⃣ Create local transaction record
-  const royaltyTransaction = await prisma.royaltyTransaction.create({
-    data: {
-      shop,
-      shopifyTransactionChargeId: usageChargeData.id.toString(),
-      orderId,
-      productId,
-      description: usageChargeData.description,
-      price: parseFloat(usageChargeData.price),
-      currency,
-      balanceUsed: parseFloat(usageChargeData.balance_used ?? "0"),
-      balanceRemaining: parseFloat(usageChargeData.balance_remaining ?? "0"),
-      royaltypercentage,
-      designerId,
-      createdAt: new Date(usageChargeData.created_at),
-    },
-  });
-
-  console.log(
-    `✅ RoyaltyTransaction created [txId=${royaltyTransaction.id}, orderId=${orderId}, price=${royaltyTransaction.price}]`
-  );
-
-  return royaltyTransaction;
+  // 4️⃣ Safe insert (DB constraint ensures no dupes)
+  try {
+    return await prisma.royaltyTransaction.create({
+      data: {
+        shop,
+        shopifyTransactionChargeId: usageChargeData.id.toString(),
+        orderId,
+        productId,
+        description: usageChargeData.description,
+        price: parseFloat(usageChargeData.price),
+        currency,
+        balanceUsed: parseFloat(usageChargeData.balance_used ?? "0"),
+        balanceRemaining: parseFloat(usageChargeData.balance_remaining ?? "0"),
+        royaltypercentage,
+        designerId,
+        createdAt: new Date(usageChargeData.created_at),
+      },
+    });
+  } catch (err: any) {
+    if (err.code === "P2002") {
+      return prisma.royaltyTransaction.findFirst({
+        where: { shop, orderId, productId, designerId },
+      });
+    }
+    throw err;
+  }
 }
+
