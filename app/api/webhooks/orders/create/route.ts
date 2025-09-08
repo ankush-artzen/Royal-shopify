@@ -191,7 +191,7 @@ export async function POST(req: NextRequest) {
           data: {
             price: li.productRoyalityCalculatedAmount,
             royaltypercentage: li.royaltypercentage,
-            description: `Updated royalty payment for order ${orderName} - ${li.title}`,
+            description: `created royalty payment for order ${orderName} - ${li.title}`,
             updatedAt: new Date(),
           },
         });
