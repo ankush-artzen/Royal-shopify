@@ -17,36 +17,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useAppBridge } from "@shopify/app-bridge-react";
 
-// ✅ Simple StatCard component
-function StatCard({
-  title,
-  value,
-  loading,
-  tone = "base",
-}: {
-  title: string;
-  value: string | number;
-  loading?: boolean;
-  tone?: "base" | "critical" | "success" | "subdued";
-}) {
-  console.log("StatCard render:", { title, value, loading, tone });
-  return (
-    <Card>
-      <BlockStack gap="300" align="center">
-        <Text as="h3" variant="headingMd">
-          {title}
-        </Text>
-        {loading ? (
-          <Spinner size="small" />
-        ) : (
-          <Text as="p" variant="headingLg" tone={tone} fontWeight="bold">
-            {value}
-          </Text>
-        )}
-      </BlockStack>
-    </Card>
-  );
-}
+import { ROYALTY_PLAN } from "@/lib/config/royaltyConfig";
 
 export default function HomePage() {
   const router = useRouter();
@@ -69,7 +40,6 @@ export default function HomePage() {
   // Get shop from App Bridge
   useEffect(() => {
     const shopFromConfig = (app as any)?.config?.shop;
-    console.log("App Bridge config shop:", shopFromConfig);
     if (shopFromConfig) setShop(shopFromConfig);
     else {
       setError("Unable to retrieve shop info from App Bridge config");
@@ -82,11 +52,9 @@ export default function HomePage() {
     if (!shop) return;
 
     async function fetchData() {
-      console.log("Fetching product and royalty data for shop:", shop);
       try {
         const resCounts = await fetch(`/api/royality/counts?shop=${shop}`);
         const dataCounts = await resCounts.json();
-        console.log("Counts API response:", dataCounts);
         if (resCounts.ok) setProductCount(dataCounts.totalProducts || 0);
         else setError(dataCounts.error || "Failed fetching counts");
 
@@ -94,23 +62,21 @@ export default function HomePage() {
           `/api/royality/orders/counts?shop=${shop}`,
         );
         const dataTotals = await resTotals.json();
-        console.log("Totals API response:", dataTotals);
         if (resTotals.ok) {
           setTotalRoyaltyAmount(dataTotals.totalRoyaltyAmount || 0);
           setTotalOrders(dataTotals.totalOrders || 0);
         } else setError(dataTotals.error || "Failed fetching totals");
       } catch (err) {
-        console.error("Error fetching data:", err);
         setError("Failed to fetch data");
       } finally {
         setLoading(false);
-        console.log("Data fetch finished. Loading:", false);
       }
     }
 
     fetchData();
   }, [shop]);
 
+  // Using config here
   const startRoyaltyPlan = async () => {
     if (!shop) return setPlanError("Shop info missing");
 
@@ -122,11 +88,7 @@ export default function HomePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: "Royalty Usage Plan",
-          price: 0,
-          cappedAmount: 500000,
-          terms: `You will be billed royalties up to $5000/month`,
-          test: true,
+          ...ROYALTY_PLAN,
           shop,
         }),
       });
@@ -139,16 +101,13 @@ export default function HomePage() {
       if (!url) throw new Error("No confirmation URL returned from Shopify");
 
       window.open(url, "_blank");
-
       setConfirmationUrl(url);
     } catch (err: any) {
-      console.error("Error creating royalty plan:", err);
       setPlanError(err.message || "Unexpected error occurred");
     } finally {
       setCreatingPlan(false);
     }
   };
-
   useEffect(() => {
     if (!shop) return;
 
@@ -171,56 +130,6 @@ export default function HomePage() {
 
     checkBilling();
   }, [shop]);
-
-  // Pay all pending royalties: create usage charge
-  // const payPendingRoyalties = async () => {
-  //   if (!shop) return setPlanError("Shop info missing");
-
-  //   if (totalRoyaltyAmount <= 0) {
-  //     console.log("No royalties to pay");
-  //     return setPlanError("No royalties to pay");
-  //   }
-
-  //   console.log(
-  //     "Paying pending royalties:",
-  //     totalRoyaltyAmount,
-  //     "for",
-  //     totalOrders,
-  //     "orders",
-  //   );
-  //   setCreatingPlan(true);
-  //   setPlanError(null);
-
-  //   try {
-  //     const res = await fetch(
-  //       `/api/charges/billing/start/usage?shop=${encodeURIComponent(shop)}`,
-  //       {
-  //         method: "POST",
-  //         headers: { "Content-Type": "application/json" },
-  //         body: JSON.stringify({
-  //           description: `Royalty for ${totalOrders} sales`,
-  //           price: Number(totalRoyaltyAmount.toFixed(2)),
-  //         }),
-  //       },
-  //     );
-
-  //     const data = await res.json();
-  //     console.log("Usage charge API response:", data);
-
-  //     if (!res.ok)
-  //       throw new Error(data.error || "Failed to create usage charge");
-
-  //     setToastActive(true);
-  //     setTotalRoyaltyAmount(0);
-  //     console.log("Royalty paid and totalRoyaltyAmount reset to 0");
-  //   } catch (err: any) {
-  //     console.error("Error creating usage charge:", err);
-  //     setPlanError(err.message || "Unexpected error occurred");
-  //   } finally {
-  //     setCreatingPlan(false);
-  //     console.log("Pay royalties finished. CreatingPlan:", false);
-  //   }
-  // };
 
   console.log("HomePage render:", {
     shop,
@@ -271,23 +180,16 @@ export default function HomePage() {
 
         {/* Quick Stats */}
         <Layout.Section>
-          <Card background="bg-fill-active">
+          <Card >
             <InlineStack align="center">
-              <BlockStack>
-                <Text as="h2" variant="headingMd" fontWeight="semibold">
-                  Total Royalties Amount:
-                </Text>
-                <Text as="h2" variant="bodyMd" tone="subdued">
-                  Total royalty tracked by all orders
-                </Text>
-              </BlockStack>
-
               <BlockStack>
                 {loading ? (
                   <Spinner size="small" />
                 ) : (
-                  <Text as="h2" variant="headingLg" fontWeight="bold">
-                    {totalRoyaltyAmount.toFixed(2)}
+                  <Text as="h2" fontWeight="bold" tone="success" variant="bodySm">
+                    Automatically calculate and charge usage-based royalties
+                    Keep your royalty payments up to date without manual
+                    tracking.you can also check transaction data also after order
                   </Text>
                 )}
               </BlockStack>
@@ -313,14 +215,6 @@ export default function HomePage() {
                 <Text as="p" variant="bodyLg">
                   Total Amount: <b>{totalRoyaltyAmount.toFixed(2)}</b>
                 </Text>
-                {/* <Button
-                  variant="primary"
-                  disabled={loading || creatingPlan || totalRoyaltyAmount === 0}
-                  loading={creatingPlan}
-                  onClick={payPendingRoyalties}
-                >
-                  Pay All Pending Royalties
-                </Button> */}
               </InlineStack>
             </BlockStack>
           </Card>

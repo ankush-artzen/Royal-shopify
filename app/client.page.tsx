@@ -165,8 +165,10 @@ export default function HomePage() {
                 ensure timely distribution with ease.
               </Text>
               <InlineStack>
-                <Button onClick={() => router.push("/royalty/create")}
-                  variant="primary">
+                <Button
+                  onClick={() => router.push("/royalty/create")}
+                  variant="primary"
+                >
                   Get Started
                 </Button>
               </InlineStack>

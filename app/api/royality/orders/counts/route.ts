@@ -10,12 +10,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Missing shop parameter" }, { status: 400 });
     }
 
+    // --- Existing: Fetch royalty orders ---
     const orders = (await prisma.royaltyOrder.findRaw({
       filter: { shop },
     })) as unknown as any[];
 
     let totalRoyaltyAmount = 0;
-    let totalQuantity = 0;
     let totalLineItemRoyalty = 0;
 
     for (const order of orders) {
@@ -30,10 +30,24 @@ export async function GET(req: NextRequest) {
 
     const totalOrders = orders.length;
 
+    // --- New: Get product with highest totalSold ---
+    const topProduct = await prisma.productRoyalty.findFirst({
+      where: { shop },
+      orderBy: { totalSold: "desc" },
+      select: {
+        title: true,
+        productId: true,
+        totalSold: true,
+        price: true,
+        Royality: true,
+      },
+    });
+
     return NextResponse.json({
       totalOrders,
       totalRoyaltyAmount,
       totalLineItemRoyalty,
+      topProduct: topProduct || null, 
     });
   } catch (error: any) {
     console.error("Error fetching totals:", error);

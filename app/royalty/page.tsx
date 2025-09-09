@@ -128,7 +128,10 @@ export default function RoyaltiesPage() {
       showToast("Royalty deleted successfully");
       setDeleteTarget(null);
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Something went wrong", true);
+      showToast(
+        err instanceof Error ? err.message : "Something went wrong",
+        true,
+      );
     } finally {
       setDeleteLoading(false);
     }
@@ -154,7 +157,10 @@ export default function RoyaltiesPage() {
       setActiveEdit(null);
       showToast("Royalty updated successfully");
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Something went wrong", true);
+      showToast(
+        err instanceof Error ? err.message : "Something went wrong",
+        true,
+      );
     }
   };
 
@@ -200,7 +206,11 @@ export default function RoyaltiesPage() {
                 ]}
               >
                 {royalties.map((royalty, index) => (
-                  <IndexTable.Row id={royalty.id} key={royalty.id} position={index}>
+                  <IndexTable.Row
+                    id={royalty.id}
+                    key={royalty.id}
+                    position={index}
+                  >
                     <IndexTable.Cell>
                       <div className="flex items-center gap-2 min-w-[220px] max-w-[240px] truncate">
                         <Thumbnail
@@ -253,7 +263,10 @@ export default function RoyaltiesPage() {
                             icon={ViewIcon}
                             onClick={() => {
                               if (!shop) return;
-                              const storeHandle = shop.replace(".myshopify.com", "");
+                              const storeHandle = shop.replace(
+                                ".myshopify.com",
+                                "",
+                              );
                               const shopifyAdminUrl = `https://admin.shopify.com/store/${storeHandle}/products/${royalty.shopifyId}`;
                               window.open(shopifyAdminUrl, "_blank");
                             }}

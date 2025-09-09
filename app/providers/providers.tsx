@@ -15,11 +15,10 @@ export default function Providers({ children }: { children: React.ReactNode }) {
           <Link href="/royalty/create">Create Royality Products</Link>
           <Link href="/royalty">Royality Products</Link>
           <Link href="/royalty/orders">Royalty Orders </Link>
-          <Link href="/royalty/billing/start"> Royality  Billing</Link>
+          <Link href="/royalty/billing/start"> Royality Billing</Link>
           <Link href="/royalty/orders/transaction">Transactions </Link>
 
-
-          {/* <Link href="/royal/">orders</Link> */}
+          <Link href="/royalty/orders/analytics"> Royalty Analytics</Link>
         </ui-nav-menu>
         <SessionProvider>{children}</SessionProvider>
       </TanstackProvider>

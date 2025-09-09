@@ -1,147 +1,180 @@
-// import { NextRequest, NextResponse } from "next/server";
-// import prisma from "@/lib/db/prisma-connect";
-
-// export async function GET(req: NextRequest) {
-//   try {
-//     const { searchParams } = new URL(req.url);
-//     const shop = searchParams.get("shop");
-
-//     if (!shop) {
-//       return NextResponse.json({ error: "Missing shop parameter" }, { status: 400 });
-//     }
-
-//     const last30Days = new Date();
-//     last30Days.setDate(last30Days.getDate() - 30);
-
-//     // Get all products for this shop
-//     const products = await prisma.productRoyalty.findMany({
-//       where: { shop },
-//       select: {
-//         productId: true,
-//         title: true,
-//         image: true,
-//         price: true,
-//         status: true,
-//         Royality: true,
-//       },
-//     });
-
-//     // Get all royalty orders (with line items)
-//     const orders = await prisma.royaltyOrder.findMany({
-//       where: { shop },
-//       select: {
-//         createdAt: true,
-//         lineItem: true,
-//       },
-//     });
-
-//     // Aggregate per product
-//     const productStats = products.map((p) => {
-//       let unitSold = 0;
-//       let totalSale = 0;
-//       let totalRoyalty = 0;
-//       let last30DaysRoyalty = 0;
-
-//       orders.forEach((order) => {
-//         order.lineItem.forEach((li) => {
-//           if (li.productId === p.productId) {
-//             unitSold += li.quantity;
-//             totalSale += li.unitPrice * li.quantity;
-//             totalRoyalty += li.productRoyalityCalculatedAmount;
-
-//             if (order.createdAt >= last30Days) {
-//               last30DaysRoyalty += li.productRoyalityCalculatedAmount;
-//             }
-//           }
-//         });
-//       });
-
-//       return {
-//         productId: p.productId,
-//         title: p.title,
-//         image: p.image,
-//         mrpOriginal: p.price,
-//         unitSold,
-//         totalSale,
-//         totalRoyalty,
-//         royaltyPercentage: p.Royality,
-//         status: p.status,
-//         last30DaysRoyalty,
-//       };
-//     });
-
-//     return NextResponse.json({
-//       shop,
-//       products: productStats,
-//       totalProducts: productStats.length,
-//     });
-//   } catch (error) {
-//     console.error("Error fetching product royalty stats:", error);
-//     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
-//   }
-// }
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db/prisma-connect";
+
+// Type definitions
+type LineItemStat = {
+  productId: string;
+  title: string;
+  variantId?: string | null;
+  variantTitle?: string | null;
+  unitSold: number;
+  totalSale: number;
+  totalRoyalty: number;
+  royaltyPercentage: number;
+  last30DaysRoyalty: number;
+  image?: string | null;
+  price?: number | null;
+  currency?: string | null;
+};
+
+type ApiResponse = {
+  shop: string;
+  products: LineItemStat[];
+  totalProducts: number;
+  totalUnitSold: number;
+  totalSales: number;
+  totalRoyalties: number;
+  last30DaysTotalRoyalty: number;
+  currentPage: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPrevPage: boolean;
+};
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
+
+    // Query parameters
     const shop = searchParams.get("shop");
+    const query = searchParams.get("query")?.trim().toLowerCase() || "";
+    const sortKey =
+      (searchParams.get("sortKey") as keyof LineItemStat) || "totalRoyalty";
+    const sortDir = (searchParams.get("sortDir") as "asc" | "desc") || "desc";
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1"));
+    const pageSize = Math.max(
+      1,
+      parseInt(searchParams.get("pageSize") || "10"),
+    );
 
     if (!shop) {
-      return NextResponse.json({ error: "Missing shop parameter" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing shop parameter" },
+        { status: 400 },
+      );
     }
 
-    const last30Days = new Date();
-    last30Days.setDate(last30Days.getDate() - 30);
-
-    // Fetch all royalty orders with line items
-    const orders = await prisma.royaltyOrder.findMany({
+    // Fetch royalty orders with line items
+    const royaltyOrders = await prisma.royaltyOrder.findMany({
       where: { shop },
-      select: {
-        createdAt: true,
-        lineItem: true,
-      },
+      include: { lineItem: true },
+      orderBy: { createdAt: "desc" },
     });
 
-    // Aggregate product stats
-    const productMap: Record<string, any> = {};
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    orders.forEach((order) => {
-      order.lineItem.forEach((li) => {
-        if (!productMap[li.productId]) {
-          productMap[li.productId] = {
-            productId: li.productId,
-            title: li.title,
-            variantId: li.variantId,
-            variantTitle: li.variantTitle,
-            unitSold: 0,
-            totalSale: 0,
-            totalRoyalty: 0,
-            royaltyPercentage: li.royaltypercentage,
-            last30DaysRoyalty: 0,
-          };
-        }
+    // Aggregate stats by product+variant
+    const productStatsMap = new Map<string, LineItemStat>();
 
-        productMap[li.productId].unitSold += li.quantity;
-        productMap[li.productId].totalSale += li.unitPrice * li.quantity;
-        productMap[li.productId].totalRoyalty += li.productRoyalityCalculatedAmount;
+    royaltyOrders.forEach((order) => {
+      const isRecentOrder = order.createdAt >= thirtyDaysAgo;
 
-        if (order.createdAt >= last30Days) {
-          productMap[li.productId].last30DaysRoyalty += li.productRoyalityCalculatedAmount;
+      order.lineItem.forEach((item) => {
+        const key = `${item.productId}-${item.variantId || "no-variant"}`;
+
+        const existing = productStatsMap.get(key);
+        const itemTotalSale = item.unitPrice * item.quantity;
+        const itemRoyalty = item.productRoyalityCalculatedAmount || 0;
+
+        if (existing) {
+          existing.unitSold += item.quantity;
+          existing.totalSale += itemTotalSale;
+          existing.totalRoyalty += itemRoyalty;
+          if (isRecentOrder) existing.last30DaysRoyalty += itemRoyalty;
+        } else {
+          productStatsMap.set(key, {
+            productId: item.productId,
+            title: item.title || "Unknown Product",
+            variantId: item.variantId || null,
+            variantTitle: item.variantTitle || null,
+            unitSold: item.quantity,
+            totalSale: itemTotalSale,
+            totalRoyalty: itemRoyalty,
+            royaltyPercentage: item.royaltypercentage || 0,
+            last30DaysRoyalty: isRecentOrder ? itemRoyalty : 0,
+            image: null,
+            price: null,
+            currency: order.currency || null,
+          });
         }
       });
     });
 
-    const products = Object.values(productMap);
+    // Convert map to array
+    let products: LineItemStat[] = Array.from(productStatsMap.values());
 
+    // Enrich with image & price
+    const productIds = Array.from(new Set(products.map((p) => p.productId)));
+    const dbProducts = await prisma.productRoyalty.findMany({
+      where: { shop, productId: { in: productIds } },
+      select: { productId: true, image: true, price: true },
+    });
+    const dbProductMap = new Map(dbProducts.map((p) => [p.productId, p]));
+
+    products = products.map((p) => ({
+      ...p,
+      image: dbProductMap.get(p.productId)?.image || null,
+      price: dbProductMap.get(p.productId)?.price || null,
+    }));
+
+    // Apply search filter
+    if (query) {
+      products = products.filter(
+        (p) =>
+          p.title?.toLowerCase().includes(query) ||
+          p.productId?.toLowerCase().includes(query) ||
+          p.variantTitle?.toLowerCase().includes(query),
+      );
+    }
+
+    // Sorting
+    products.sort((a, b) => {
+      const dir = sortDir === "asc" ? 1 : -1;
+      const aValue = a[sortKey] ?? "";
+      const bValue = b[sortKey] ?? "";
+
+      if (typeof aValue === "number" && typeof bValue === "number") {
+        return (aValue - bValue) * dir;
+      }
+      return String(aValue).localeCompare(String(bValue)) * dir;
+    });
+
+    // Totals
+    const totalUnitSold = products.reduce((sum, p) => sum + p.unitSold, 0);
+    const totalSales = products.reduce((sum, p) => sum + p.totalSale, 0);
+    const totalRoyalties = products.reduce((sum, p) => sum + p.totalRoyalty, 0);
+    const last30DaysTotalRoyalty = products.reduce(
+      (sum, p) => sum + p.last30DaysRoyalty,
+      0,
+    );
+
+    // Pagination
+    const totalProducts = products.length;
+    const totalPages = Math.max(1, Math.ceil(totalProducts / pageSize));
+    const currentPage = Math.min(page, totalPages);
+    const startIndex = (currentPage - 1) * pageSize;
+    const paginatedProducts = products.slice(startIndex, startIndex + pageSize);
+
+    // Return response
     return NextResponse.json({
       shop,
-      products,
-      totalProducts: products.length,
-    });
+      products: paginatedProducts,
+      totalProducts,
+      totalUnitSold,
+      totalSales,
+      totalRoyalties,
+      last30DaysTotalRoyalty,
+      currentPage,
+      totalPages,
+      hasNextPage: currentPage < totalPages,
+      hasPrevPage: currentPage > 1,
+    } as ApiResponse);
   } catch (error) {
-    console.error("Error fetching product royalty stats from orders:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    console.error("Error fetching product royalty stats:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
   }
 }

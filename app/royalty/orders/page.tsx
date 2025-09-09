@@ -10,10 +10,18 @@ import {
   EmptyState,
   Badge,
   Modal,
+  BlockStack,
+  InlineStack,
+  List,
+  Divider,
+  Box,
+  Button,
 } from "@shopify/polaris";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { Icon } from "@shopify/polaris";
 import { ChevronLeftIcon, ChevronRightIcon } from "@shopify/polaris-icons";
+import { useRouter } from "next/navigation";
+import OrderModal from "@/app/components/RoyaltyOrderModal";
 
 interface LineItem {
   productId: string;
@@ -48,8 +56,10 @@ export default function RoyaltiesPage() {
   const [page, setPage] = useState<number>(1);
   const [limit] = useState<number>(10); // Items per page
   const [totalOrders, setTotalOrders] = useState<number>(0);
+  const [modalActive, setModalActive] = useState<boolean>(false);
 
   const app = useAppBridge();
+  const router = useRouter();
 
   useEffect(() => {
     const shopFromConfig = app?.config?.shop;
@@ -85,12 +95,19 @@ export default function RoyaltiesPage() {
     fetchRoyalties();
   }, [shop, page, limit]);
 
-
-
   const totalPages = Math.ceil(totalOrders / limit);
 
   return (
-    <Page title="Royalties Per Order">
+    <Page
+      title="Royalties Per Order"
+      backAction={{ content: "Back", onAction: () => router.back() }}
+      secondaryActions={[
+        {
+          content: "Order Data",
+          onAction: () => router.push("/royalty/orders/sold"),
+        },
+      ]}
+    >
       <Card>
         {loading ? (
           <div
@@ -121,8 +138,7 @@ export default function RoyaltiesPage() {
                 headings={[
                   { title: "Order ID" },
                   { title: "Order Name" },
-                  // { title: "Currency" },
-                  { title: "Royality Amount" },
+                  { title: "Royalty Amount" },
                   { title: "Created At" },
                 ]}
               >
@@ -136,10 +152,17 @@ export default function RoyaltiesPage() {
                     <IndexTable.Cell>
                       <Text as="h2" fontWeight="medium">
                         <a
-                          href={`https://admin.shopify.com/store/${storeName}/orders/${item.orderId}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-600 hover:underline"
+                          href={`/orders/${item.orderId}`}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setSelectedOrder(item);
+                            setModalActive(true);
+                          }}
+                          style={{
+                            color: "blue",
+                            textDecoration: "underline",
+                            cursor: "pointer",
+                          }}
                         >
                           {item.orderId}
                         </a>
@@ -153,15 +176,11 @@ export default function RoyaltiesPage() {
                       </Text>
                     </IndexTable.Cell>
 
-                    {/* Currency */}
-                    {/* <IndexTable.Cell>
-                      {renderCurrencyBadge(item.currency)}
-                    </IndexTable.Cell> */}
-
-                    {/* Royality Amount */}
+                    {/* Royalty Amount */}
                     <IndexTable.Cell>
                       <Text as="span" fontWeight="medium">
-                        {item.calculatedroyaltyamount.toFixed(2)}
+                        {item.calculatedroyaltyamount.toFixed(2)}{" "}
+                        {item.currency}
                       </Text>
                     </IndexTable.Cell>
 
@@ -194,7 +213,7 @@ export default function RoyaltiesPage() {
                     </Text>
                   </IndexTable.Cell>
 
-                  <IndexTable.Cell></IndexTable.Cell>
+                  <IndexTable.Cell colSpan={2}></IndexTable.Cell>
                 </IndexTable.Row>
               </IndexTable>
             </div>
@@ -230,28 +249,12 @@ export default function RoyaltiesPage() {
 
         {/* Modal for selected order */}
         {selectedOrder && (
-          <Modal
-            open={!!selectedOrder}
-            onClose={() => setSelectedOrder(null)}
-            title={`Order ${selectedOrder.orderName}`}
-            primaryAction={{
-              content: "Close",
-              onAction: () => setSelectedOrder(null),
-            }}
-          >
-            <Modal.Section>
-              {selectedOrder.lineItem.map((li, idx) => (
-                <div key={idx}>
-                  <Text as="p">Product: {li.title}</Text>
-                  <Text as="p">
-                    Amount: {li.amount.toFixed(2)} {selectedOrder.currency}
-                  </Text>
-                  <Text as="p">Royalty %: {li.royality.toFixed(2)}</Text>
-                  <hr className="my-2" />
-                </div>
-              ))}
-            </Modal.Section>
-          </Modal>
+          <OrderModal
+            order={selectedOrder}
+            storeName={storeName || ""}
+            active={modalActive}
+            onClose={() => setModalActive(false)}
+          />
         )}
       </Card>
     </Page>
