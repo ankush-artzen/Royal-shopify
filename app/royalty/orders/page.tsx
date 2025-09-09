@@ -101,12 +101,7 @@ export default function RoyaltiesPage() {
     <Page
       title="Royalties Per Order"
       backAction={{ content: "Back", onAction: () => router.back() }}
-      secondaryActions={[
-        {
-          content: "Order Data",
-          onAction: () => router.push("/royalty/orders/sold"),
-        },
-      ]}
+    
     >
       <Card>
         {loading ? (
