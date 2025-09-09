@@ -180,18 +180,14 @@ export default function HomePage() {
 
         {/* Quick Stats */}
         <Layout.Section>
-          <Card >
+          <Card>
             <InlineStack align="center">
               <BlockStack>
-                {loading ? (
-                  <Spinner size="small" />
-                ) : (
-                  <Text as="h2" fontWeight="bold" tone="success" variant="bodySm">
-                    Automatically calculate and charge usage-based royalties
-                    Keep your royalty payments up to date without manual
-                    tracking.you can also check transaction data also after order
-                  </Text>
-                )}
+                <Text as="h2"  tone="success" variant="bodySm">
+                  Automatically calculate and charge usage-based royalties Keep
+                  your royalty payments up to date without manual tracking.you
+                  can also check transaction data also after order
+                </Text>
               </BlockStack>
             </InlineStack>
           </Card>
@@ -231,3 +227,4 @@ export default function HomePage() {
     </Frame>
   );
 }
+
