@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
     if (!name || !email) {
       return NextResponse.json(
         { error: "Missing name or email" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -24,17 +24,16 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error("Error creating designer:", error);
 
-    // Handle unique email constraint
     if (error.code === "P2002") {
       return NextResponse.json(
         { error: "Email already exists" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     return NextResponse.json(
       { error: error.message || "Internal Server Error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

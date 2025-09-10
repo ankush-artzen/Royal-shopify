@@ -1,19 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db/prisma-connect";
+import { PAGINATION, DATE_RANGE } from "@/lib/constants/constants";
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
 
     const shop = searchParams.get("shop");
-    const page = Math.max(parseInt(searchParams.get("page") || "1", 10), 1);
-    const limit = Math.min(Math.max(parseInt(searchParams.get("limit") || "10", 10), 1), 100);
+    const page = Math.max(
+      parseInt(
+        searchParams.get("page") || PAGINATION.DEFAULT_PAGE.toString(),
+        10,
+      ),
+      1,
+    );
+    const limit = Math.min(
+      Math.max(
+        parseInt(
+          searchParams.get("limit") || PAGINATION.DEFAULT_LIMIT.toString(),
+          10,
+        ),
+        1,
+      ),
+      PAGINATION.MAX_LIMIT,
+    );
 
     // Date filtering
-    const endDate = searchParams.get("endDate") ? new Date(searchParams.get("endDate")!) : new Date();
+    const endDate = searchParams.get("endDate")
+      ? new Date(searchParams.get("endDate")!)
+      : new Date();
     const startDate = searchParams.get("startDate")
       ? new Date(searchParams.get("startDate")!)
-      : new Date(new Date().setDate(endDate.getDate() - 30)); // default last 30 days
+      : new Date(
+          new Date().setDate(endDate.getDate() - DATE_RANGE.DEFAULT_DAYS),
+        );
 
     // Prisma filter
     const where: any = {
@@ -23,20 +43,19 @@ export async function GET(req: NextRequest) {
 
     console.log("📌 Prisma query filter:", where);
 
-    // Count total transactions for pagination
     const totalCount = await prisma.royaltyTransaction.count({ where });
 
-    // Fetch paginated transactions **latest createdAt first**
     const transactions = await prisma.royaltyTransaction.findMany({
       where,
-      orderBy: { createdAt: "desc" }, // latest first
+      orderBy: { createdAt: "desc" },
       skip: (page - 1) * limit,
       take: limit,
     });
 
-    console.log(`✅ Fetched ${transactions.length} transactions (page ${page})`);
+    console.log(
+      `✅ Fetched ${transactions.length} transactions (page ${page})`,
+    );
 
-    // Sanitize and format
     const sanitizedTransactions = transactions.map((tx) => ({
       id: tx.id,
       shop: tx.shop,
@@ -67,7 +86,7 @@ export async function GET(req: NextRequest) {
         success: false,
         error: error.message || "Failed to fetch RoyaltyTransactions",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

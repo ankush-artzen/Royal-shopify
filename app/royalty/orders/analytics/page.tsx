@@ -6,28 +6,19 @@ import {
   Filters,
   InlineStack,
   Text,
-  Spinner,
-  EmptyState,
   Button,
   Tooltip,
-  Icon,
 } from "@shopify/polaris";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { useRouter } from "next/navigation";
+import Pagination from "@/app/components/Pagination";
 
-import {
-  RefreshIcon,
-  ExportIcon,
-  SearchIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-} from "@shopify/polaris-icons";
-
-import {
-  RoyaltyTable,
-  ApiResponse,
-} from "@/app/components/analytics/RoyaltyTable";
+import { RefreshIcon, ExportIcon, SearchIcon } from "@shopify/polaris-icons";
 import { exportRoyaltyCSV } from "@/app/components/analytics/CSVExporter";
+import CustomDataTable from "@/app/components/CustomDataTable";
+
+import type { ApiResponse, LineItemStat } from "@/app/components/analytics/RoyaltyTable";
+import { ProductCell } from "@/app/components/analytics/RoyaltyTable";
 
 const PAGE_SIZE = 10;
 const FALLBACK_IMAGE =
@@ -56,7 +47,7 @@ export default function ProductRoyaltyFromOrdersPage() {
         currency: currency || "USD",
         maximumFractionDigits: 2,
       }).format(value),
-    [],
+    []
   );
 
   const fetchData = useCallback(async () => {
@@ -111,6 +102,26 @@ export default function ProductRoyaltyFromOrdersPage() {
   const handlePrev = () => setPage((prev) => Math.max(1, prev - 1));
   const handleNext = () => setPage((prev) => Math.min(totalPages, prev + 1));
 
+  // Prepare columns and rows for CustomDataTable
+  const columns = [
+    "Product / Variant",
+    "Units Sold",
+    "Total Sale",
+    "Total Royalty",
+    "Royalty %",
+    "Royalty Last 30 Days",
+  ];
+
+  const rows =
+    apiData?.products.map((product: LineItemStat) => [
+      <ProductCell product={product} key={product.productId} />,
+      product.unitSold.toLocaleString(),
+      formatCurrency(product.totalSale, product.currency),
+      formatCurrency(product.totalRoyalty, product.currency),
+      (product.royaltyPercentage ?? 0).toFixed(2) + "%",
+      formatCurrency(product.last30DaysRoyalty, product.currency),
+    ]) || [];
+
   return (
     <Page
       title="Product Royalty Report"
@@ -153,62 +164,25 @@ export default function ProductRoyaltyFromOrdersPage() {
         </Filters>
       </Card>
 
-      <Card>
-        {loading ? (
-          <div style={{ padding: 40, display: "grid", placeItems: "center" }}>
-            <Spinner size="large" />
-          </div>
-        ) : error ? (
-          <EmptyState
-            heading="Couldn't load product royalty stats"
-            action={{ content: "Retry", onAction: fetchData }}
-            secondaryAction={{
-              content: "Reset filters",
-              onAction: handleClearAll,
-            }}
-            image={FALLBACK_IMAGE}
-          >
-            <p>{error}</p>
-          </EmptyState>
-        ) : !apiData?.products.length ? (
-          <EmptyState
-            heading="No matching products"
-            action={{ content: "Clear search", onAction: handleClearAll }}
-            image={FALLBACK_IMAGE}
-          >
-            <p>Try changing your search or refresh the data.</p>
-          </EmptyState>
-        ) : (
-          <>
-            <RoyaltyTable data={apiData} formatCurrency={formatCurrency} />
+      {/* Use CustomDataTable */}
+      <CustomDataTable
+        columns={columns}
+        rows={rows}
+        loading={loading}
+        error={error}
+        emptyStateMessage="No matching products"
+        emptyStateImage={FALLBACK_IMAGE}
+      />
 
-            {/* Custom Pagination */}
-            <div className="flex items-center justify-center gap-6 py-4">
-              <button
-                disabled={page <= 1}
-                onClick={handlePrev}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-800 
-                  hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition"
-              >
-                <Icon source={ChevronLeftIcon} tone="base" />
-              </button>
-
-              <span className="text-sm font-medium">
-                Page {page} of {totalPages}
-              </span>
-
-              <button
-                disabled={page >= totalPages}
-                onClick={handleNext}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-800 
-                  hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition"
-              >
-                <Icon source={ChevronRightIcon} tone="base" />
-              </button>
-            </div>
-          </>
-        )}
-      </Card>
+      {/* Pagination */}
+      {!loading && !error && apiData?.products.length ? (
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          onPrev={handlePrev}
+          onNext={handleNext}
+        />
+      ) : null}
     </Page>
   );
 }

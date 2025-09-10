@@ -1,15 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db/prisma-connect";
+import { DEFAULT_PAGE, DEFAULT_LIMIT, MAX_LIMIT, ERROR_MESSAGES } from "@/lib/constants/constants";
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const shop = searchParams.get("shop");
-    const page = parseInt(searchParams.get("page") || "1", 10);
-    const limit = parseInt(searchParams.get("limit") || "10", 10); // default 10 per page
+    const page = Math.max(parseInt(searchParams.get("page") || DEFAULT_PAGE.toString(), 10), 1);
+    const limit = Math.min(
+      Math.max(parseInt(searchParams.get("limit") || DEFAULT_LIMIT.toString(), 10), 1),
+      MAX_LIMIT
+    );
 
     if (!shop) {
-      return NextResponse.json({ error: "Missing shop parameter" }, { status: 400 });
+      return NextResponse.json({ error: ERROR_MESSAGES.MISSING_SHOP }, { status: 400 });
     }
 
     const skip = (page - 1) * limit;
@@ -31,7 +35,6 @@ export async function GET(req: NextRequest) {
 
     const totalOrders = await prisma.royaltyOrder.count({ where: { shop } });
 
-    // Calculate total royalty for **all orders** if needed
     const totalCalculatedRoyalty = await prisma.royaltyOrder.aggregate({
       _sum: { calculatedroyaltyamount: true },
       where: { shop },
@@ -45,7 +48,7 @@ export async function GET(req: NextRequest) {
       limit,
     });
   } catch (error) {
-    console.error("Error fetching orders:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    console.error("❌ Error fetching orders:", error);
+    return NextResponse.json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR }, { status: 500 });
   }
 }

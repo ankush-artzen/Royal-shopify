@@ -82,7 +82,6 @@ model ProductRoyalty {
   shop       String?
   totalSold        Int     @default(0) 
   totalRoyaltyEarned Float  @default(0)
-
   designer   Designer @relation(fields: [designerId], references: [id])
 
   @@unique([productId, designerId])
@@ -148,3 +147,4 @@ model RoyaltyTransaction {
 
   @@unique([shop, orderId, productId, designerId])
 }
+

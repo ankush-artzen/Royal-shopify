@@ -60,7 +60,7 @@ export default function AssignRoyalty() {
     }
   }, [app]);
 
-  // ✅ Step 2: Fetch billing status once shop is available
+  // Fetch billing status once shop is available
   useEffect(() => {
     if (!shop) return;
 
@@ -236,7 +236,7 @@ export default function AssignRoyalty() {
                           {selectedProduct.title}
                         </Text>
                         <Text as="p" tone="subdued">
-                          ${selectedProduct.price}
+                          {selectedProduct.price}
                         </Text>
                       </BlockStack>
                       <Button onClick={() => setSelectedProduct(null)}>

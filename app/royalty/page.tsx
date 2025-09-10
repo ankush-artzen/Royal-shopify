@@ -3,25 +3,23 @@
 import { useEffect, useState, useCallback } from "react";
 import {
   Page,
-  Card,
-  IndexTable,
   Text,
   Thumbnail,
-  Spinner,
-  EmptyState,
+  Box,
   Badge,
   Button,
   Tooltip,
   Frame,
   Toast,
+  InlineStack,
 } from "@shopify/polaris";
 import { EditIcon, DeleteIcon, ViewIcon } from "@shopify/polaris-icons";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { useRouter } from "next/navigation";
 import EditRoyaltyModal from "../components/editroyality";
 import DeleteConfirmationModal from "../components/dialog";
-import { Icon } from "@shopify/polaris";
-import { ChevronLeftIcon, ChevronRightIcon } from "@shopify/polaris-icons";
+import Pagination from "../components/Pagination";
+import CustomDataTable from "../components/CustomDataTable";
 
 interface Royalty {
   id: string;
@@ -164,9 +162,64 @@ export default function RoyaltiesPage() {
     }
   };
 
-  // ✅ Pagination
-  const handlePrev = () => page > 1 && setPage(page - 1);
-  const handleNext = () => page < totalPages && setPage(page + 1);
+  const defaultImage =
+    "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png";
+
+  // ✅ Build DataTable rows
+  const rows = royalties.map((royalty) => [
+    <InlineStack key={`product-${royalty.id}`} gap="200" blockAlign="center">
+      <Thumbnail source={royalty.image || defaultImage} alt={royalty.title} />
+      <div
+        style={{
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          maxWidth: 200,
+        }}
+        title={royalty.title}
+      >
+        {royalty.title}
+      </div>
+    </InlineStack>,
+
+    <Badge key={`royalty-${royalty.id}`} tone="success">
+      {`${royalty.Royality ?? 0}%`}
+    </Badge>,
+
+    <Text key={`price-${royalty.id}`} as="h2">
+      {royalty.price != null ? royalty.price.toFixed(2) : "—"}
+    </Text>,
+
+    <Box key={`actions-${royalty.id}`}>
+      <Tooltip content="Edit Royalty">
+        <Button
+          size="slim"
+          icon={EditIcon}
+          onClick={() => setActiveEdit(royalty)}
+        />
+      </Tooltip>{"  "}
+      <Tooltip content="Delete Royalty">
+        <Button
+          size="slim"
+          tone="critical"
+          icon={DeleteIcon}
+          onClick={() => setDeleteTarget(royalty)}
+        />
+      </Tooltip>{"  "}
+      <Tooltip content="View Product in Shopify Admin">
+        <Button
+          size="slim"
+          icon={ViewIcon}
+          onClick={() => {
+            if (!shop) return;
+            const storeHandle = shop.replace(".myshopify.com", "");
+            const shopifyAdminUrl = `https://admin.shopify.com/store/${storeHandle}/products/${royalty.shopifyId}`;
+            window.open(shopifyAdminUrl, "_blank");
+          }}
+        />
+      </Tooltip>
+    </Box>,
+  ]);
 
   return (
     <Frame>
@@ -174,137 +227,13 @@ export default function RoyaltiesPage() {
         title="Product Royalties"
         backAction={{ content: "Back", onAction: () => router.back() }}
       >
-        <Card>
-          {loading ? (
-            <div className="flex justify-center items-center p-8">
-              <Spinner accessibilityLabel="Loading royalties" size="large" />
-            </div>
-          ) : error ? (
-            <div className="p-8 text-red-600">{error}</div>
-          ) : royalties.length === 0 ? (
-            <EmptyState
-              heading="No royalties assigned yet"
-              action={{ content: "Assign Royalty", url: "/royalty/create" }}
-              image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
-            >
-              <p>
-                You haven’t assigned any royalties yet. Start by linking a
-                designer to a product.
-              </p>
-            </EmptyState>
-          ) : (
-            <>
-              <IndexTable
-                resourceName={{ singular: "royalty", plural: "royalties" }}
-                itemCount={royalties.length}
-                selectable={false}
-                headings={[
-                  { title: "Product" },
-                  { title: "Royalty %", alignment: "center" },
-                  { title: "Price", alignment: "center" },
-                  { title: "Actions", alignment: "center" },
-                ]}
-              >
-                {royalties.map((royalty, index) => (
-                  <IndexTable.Row
-                    id={royalty.id}
-                    key={royalty.id}
-                    position={index}
-                  >
-                    <IndexTable.Cell>
-                      <div className="flex items-center gap-2 min-w-[220px] max-w-[240px] truncate">
-                        <Thumbnail
-                          source={
-                            royalty.image ||
-                            "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png"
-                          }
-                          alt={royalty.title}
-                        />
-                        <Text as="span" truncate>
-                          {royalty.title}
-                        </Text>
-                      </div>
-                    </IndexTable.Cell>
-
-                    <IndexTable.Cell>
-                      <div className="flex justify-center min-w-[100px]">
-                        <Badge tone="success">{`${royalty.Royality}%`}</Badge>
-                      </div>
-                    </IndexTable.Cell>
-
-                    <IndexTable.Cell>
-                      <div className="flex justify-center min-w-[120px]">
-                        {royalty.price !== null && royalty.price !== undefined
-                          ? royalty.price.toFixed(2)
-                          : "—"}
-                      </div>
-                    </IndexTable.Cell>
-
-                    <IndexTable.Cell>
-                      <div className="flex justify-end w-full gap-5 pr-12">
-                        <Tooltip content="Edit Royalty">
-                          <Button
-                            size="slim"
-                            icon={EditIcon}
-                            onClick={() => setActiveEdit(royalty)}
-                          />
-                        </Tooltip>
-                        <Tooltip content="Delete Royalty">
-                          <Button
-                            size="slim"
-                            tone="critical"
-                            icon={DeleteIcon}
-                            onClick={() => setDeleteTarget(royalty)}
-                          />
-                        </Tooltip>
-                        <Tooltip content="View Product in Shopify Admin">
-                          <Button
-                            size="slim"
-                            icon={ViewIcon}
-                            onClick={() => {
-                              if (!shop) return;
-                              const storeHandle = shop.replace(
-                                ".myshopify.com",
-                                "",
-                              );
-                              const shopifyAdminUrl = `https://admin.shopify.com/store/${storeHandle}/products/${royalty.shopifyId}`;
-                              window.open(shopifyAdminUrl, "_blank");
-                            }}
-                          />
-                        </Tooltip>
-                      </div>
-                    </IndexTable.Cell>
-                  </IndexTable.Row>
-                ))}
-              </IndexTable>
-
-              {/* Pagination */}
-              <div className="flex items-center justify-center gap-6 py-4">
-                <button
-                  disabled={page <= 1}
-                  onClick={handlePrev}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-800 
-               hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition"
-                >
-                  <Icon source={ChevronLeftIcon} tone="base" />
-                </button>
-
-                <span className="text-sm font-medium">
-                  Page {page} of {totalPages}
-                </span>
-
-                <button
-                  disabled={page >= totalPages}
-                  onClick={handleNext}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-800 
-               hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition"
-                >
-                  <Icon source={ChevronRightIcon} tone="base" />
-                </button>
-              </div>
-            </>
-          )}
-        </Card>
+        <CustomDataTable
+          columns={["Product", "Royalty %", "Price", "Actions"]}
+          rows={rows}
+          loading={loading}
+          error={error}
+          emptyStateMessage="No royalties assigned yet"
+        />
 
         {/* Edit Modal */}
         {activeEdit && (
@@ -336,6 +265,22 @@ export default function RoyaltiesPage() {
             content={toastMessage}
             error={toastError}
             onDismiss={() => setToastMessage(null)}
+          />
+        )}
+
+        {/* Pagination */}
+        {!loading && !error && royalties.length > 0 && (
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            onPrev={() => {
+              setLoading(true);
+              setPage((prev) => Math.max(prev - 1, 1));
+            }}
+            onNext={() => {
+              setLoading(true);
+              setPage((prev) => Math.min(prev + 1, totalPages));
+            }}
           />
         )}
       </Page>

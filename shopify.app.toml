@@ -3,12 +3,12 @@
 client_id = "9d30734af146b758cca109114d5831d8"
 name = "Royality-demo"
 handle = "royality-demo"
-application_url = "https://oval-projector-visitor-submissions.trycloudflare.com"
+application_url = "https://february-creation-celebration-cylinder.trycloudflare.com"
 embedded = true
 
 [build]
 automatically_update_urls_on_dev = true
-dev_store_url = "karan-working.myshopify.com"
+dev_store_url = "artzen-demo.myshopify.com"
 include_config_on_deploy = true
 
 [access_scopes]
@@ -17,9 +17,9 @@ scopes = "read_customers,read_orders,read_products,write_orders,write_products"
 
 [auth]
 redirect_urls = [
-  "https://oval-projector-visitor-submissions.trycloudflare.com/auth/callback",
-  "https://oval-projector-visitor-submissions.trycloudflare.com/auth/shopify/callback",
-  "https://oval-projector-visitor-submissions.trycloudflare.com/api/auth/callback"
+  "https://february-creation-celebration-cylinder.trycloudflare.com/auth/callback",
+  "https://february-creation-celebration-cylinder.trycloudflare.com/auth/shopify/callback",
+  "https://february-creation-celebration-cylinder.trycloudflare.com/api/auth/callback"
 ]
 
 [webhooks]

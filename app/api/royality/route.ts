@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/db/prisma-connect";
+import { DEFAULT_PAGE, DEFAULT_LIMIT } from "@/lib/constants/constants";
 
 export async function GET(req: NextRequest) {
   try {
@@ -10,8 +11,8 @@ export async function GET(req: NextRequest) {
     const productId = searchParams.get("productId");
     const status = searchParams.get("status");
 
-    const page = Number(searchParams.get("page") || "1");
-    const limit = Number(searchParams.get("limit") || "8");
+    let page = Number(searchParams.get("page") || DEFAULT_PAGE);
+    const limit = Number(searchParams.get("limit") || DEFAULT_LIMIT);
 
     if (!shop) {
       return NextResponse.json(
@@ -29,6 +30,12 @@ export async function GET(req: NextRequest) {
     // Count total items matching the filter
     const totalCount = await prisma.productRoyalty.count({ where });
 
+    // Calculate total pages
+    const totalPages = Math.ceil(totalCount / limit) || 1;
+
+    // Clamp the page number to a valid range
+    page = Math.min(Math.max(page, 1), totalPages);
+
     // Fetch paginated data
     const royalties = await prisma.productRoyalty.findMany({
       where,
@@ -39,9 +46,9 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       royalties,
-      count: totalCount,   
+      count: totalCount,
       page,
-      totalPages: Math.ceil(totalCount / limit),
+      totalPages,
     });
   } catch (err: any) {
     console.error("Error fetching royalty products:", err);
