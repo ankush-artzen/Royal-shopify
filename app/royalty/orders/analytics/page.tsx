@@ -17,13 +17,15 @@ import { RefreshIcon, ExportIcon, SearchIcon } from "@shopify/polaris-icons";
 import { exportRoyaltyCSV } from "@/app/components/analytics/CSVExporter";
 import CustomDataTable from "@/app/components/CustomDataTable";
 
-import type { ApiResponse, LineItemStat } from "@/app/components/analytics/RoyaltyTable";
+import type {
+  ApiResponse,
+  LineItemStat,
+} from "@/app/components/analytics/RoyaltyTable";
 import { ProductCell } from "@/app/components/analytics/RoyaltyTable";
 
 const PAGE_SIZE = 10;
 const FALLBACK_IMAGE =
-  "https://cdn.shopify.com/s/files/1/0533/2089/files/emptystate-files.png";
-
+  "https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png";
 export default function ProductRoyaltyFromOrdersPage() {
   const app = useAppBridge();
   const router = useRouter();
@@ -47,7 +49,7 @@ export default function ProductRoyaltyFromOrdersPage() {
         currency: currency || "USD",
         maximumFractionDigits: 2,
       }).format(value),
-    []
+    [],
   );
 
   const fetchData = useCallback(async () => {
