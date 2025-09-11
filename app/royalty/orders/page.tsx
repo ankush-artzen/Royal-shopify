@@ -114,7 +114,7 @@ export default function RoyaltiesPage() {
         rows={rows}
         loading={loading}
         error={error}
-        emptyStateMessage="No royalty transactions found"
+        emptyStateMessage="No royalty orders found"
       />
 
       {selectedOrder && (
