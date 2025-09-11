@@ -82,27 +82,31 @@ export default function RoyaltiesPage() {
 
   const totalPages = Math.ceil(totalOrders / limit);
 
-  // Prepare rows for CustomDataTable
-  const rows = orders.map((order) => [
-    <a
-      key={order.orderId}
-      href={`/orders/${order.orderId}`}
-      onClick={(e) => {
-        e.preventDefault();
-        setSelectedOrder(order);
-        setModalActive(true);
-      }}
-      style={{ color: "blue", textDecoration: "underline", cursor: "pointer" }}
-    >
-      {order.orderId}
-    </a>,
-    order.orderName,
-    `${order.calculatedroyaltyamount.toFixed(2)} ${order.currency}`,
-    order.createdAt ? new Date(order.createdAt).toLocaleDateString() : "-",
-  ]);
+  // ✅ Build rows only if we have orders
+  let rows: (string | JSX.Element)[][] = [];
 
-  // Add total row
-  rows.push(["TOTAL", "", totalRoyalty.toFixed(2), ""]);
+  if (orders.length > 0) {
+    rows = orders.map((order) => [
+      <a
+        key={order.orderId}
+        href={`/orders/${order.orderId}`}
+        onClick={(e) => {
+          e.preventDefault();
+          setSelectedOrder(order);
+          setModalActive(true);
+        }}
+        style={{ color: "blue", textDecoration: "underline", cursor: "pointer" }}
+      >
+        {order.orderId}
+      </a>,
+      order.orderName,
+      `${order.calculatedroyaltyamount.toFixed(2)} ${order.currency}`,
+      order.createdAt ? new Date(order.createdAt).toLocaleDateString() : "-",
+    ]);
+
+    // Add TOTAL row only if orders exist
+    rows.push(["TOTAL", "", totalRoyalty.toFixed(2), ""]);
+  }
 
   return (
     <Page
